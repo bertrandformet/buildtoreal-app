@@ -3,13 +3,13 @@
 // - Les fichiers à nom unique (code, styles, police) sortent de la mémoire d'abord ; la page d'accueil passe par le réseau, avec la mémoire en secours.
 // - Une nouvelle version s'installe en attente : elle ne prend la main que sur demande du joueur (bandeau « Nouvelle version »).
 // - Il ne touche jamais aux projets : ceux-ci vivent dans IndexedDB, pas dans ces mémoires.
-const CACHE = 'bt-b920af9b0a';
+const CACHE = 'bt-f2e76108be';
 const PRECACHE = [
   "./",
   "./OFL-Baloo2.txt",
   "./apple-touch-icon.png",
   "./assets/baloo2-latin-8NeBJN4T.woff2",
-  "./assets/index-1OVOpy4_.js",
+  "./assets/index-Bb2jvx6A.js",
   "./assets/index-DZECnz6u.css",
   "./assets/logo-CYNBmSaD.png",
   "./icon-192.png",

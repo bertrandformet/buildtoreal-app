@@ -29,8 +29,11 @@ Il est pensé pour les enfants de 7 à 12 ans, et reste ouvert à tous.
   seul fichier qui fonctionne sans connexion.
 - **Garder ses créations** : chaque construction s'enregistre toute seule sur l'appareil, dans « Mes créations ». Elle peut
   aussi être enregistrée dans un fichier, pour la garder à l'abri ou l'ouvrir sur un autre appareil.
-- **S'inspirer** de modèles d'exemple : tour arc-en-ciel, escalier, pont, maisons.
-- **Apprendre en jouant** : un guide de onze petites missions montre les gestes à la première ouverture.
+- **S'inspirer** de six modèles d'exemple, de la petite voiture à la grande maison sur sept plaques : un château à deux étages,
+  un grand pont, un camion. Leurs portes, leurs fenêtres et leurs lumières marchent.
+- **Visiter** sa construction en mode Visite, et ouvrir d'un toucher les portes, les fenêtres, les portières, les hayons et
+  les portes de garage.
+- **Apprendre en jouant** : un guide de quinze petites missions montre les gestes à la première ouverture.
 
 ## Les pièces
 
@@ -42,6 +45,7 @@ Il est pensé pour les enfants de 7 à 12 ans, et reste ouvert à tous.
 | Tuiles (lisses) | 1×2, 1×4, 1×6, 1×8, 2×2, 2×4, 2×6, 2×8 |
 | Pentes | pente raide 1×2 à 2×4, pente douce 2×3 et 2×4, pente d'angle 2×2 |
 | Roues | support 2×4 à deux grandes roues, support 2×2 à deux petites roues, support 2×2 à une roue (petite ou grande) |
+| Ouvrants | portes, doubles portes, fenêtres, portières de voiture, hayons, portes de garage, en plusieurs tailles |
 
 **16 couleurs**, choisies pour rester distinguables, y compris pour trois formes de daltonisme. Chaque couleur existe en
 quatre finitions :
@@ -49,8 +53,8 @@ quatre finitions :
 - **opaque** ;
 - **transparente** ;
 - **givrée** : translucide et dépolie ;
-- **lumineuse** : la pièce brille et éclaire autour d'elle. Un **interrupteur** posé sur la même construction l'allume et
-  l'éteint d'un toucher. L'effet se voit le mieux en **mode nuit**.
+- **lumineuse** : la pièce brille et éclaire autour d'elle. Un **interrupteur** allume et éteint d'un toucher les lumières
+  qu'on lui relie avec l'outil **Relier**. L'effet se voit le mieux en **mode nuit**.
 
 Les règles sont celles des vraies briques : une pièce tient si au moins un de ses tenons s'accroche dessous. Rien ne tient
 sur une surface lisse, comme une tuile, le haut d'une pente ou un pneu. Et on ne peut pas retirer une pièce qui en porte
