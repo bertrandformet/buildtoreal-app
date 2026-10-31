@@ -4,7 +4,7 @@
 
 👉 **Jouer : https://bertrandformet.github.io/buildtoreal-app/**
 
-On assemble des briques sur une plaque, en 3D, sur téléphone, tablette ou ordinateur. Le jeu calcule ensuite la notice, étape par étape, comme celle d'une vraie boîte : on la feuillette comme un livre, on l'imprime, on la télécharge, ou on refait la construction pour de vrai. Pensé pour les enfants de 7 à 12 ans, ouvert à tous. Gratuit, sans compte, sans publicité, sans suivi : tout se passe dans le navigateur et les constructions restent sur l'appareil.
+On assemble des briques sur une plaque, en 3D, sur téléphone, tablette ou ordinateur. Le jeu calcule ensuite la notice, étape par étape, comme celle d'une vraie boîte : on la feuillette comme un livre, on l'imprime, on la télécharge, ou on refait la construction pour de vrai. Gratuit, sans compte, sans publicité, sans suivi : tout se passe dans le navigateur et les constructions restent sur l'appareil.
 
 ## Ce que fait le jeu
 
