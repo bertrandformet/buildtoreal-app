@@ -33,7 +33,7 @@ Il est pensé pour les enfants de 7 à 12 ans, et reste ouvert à tous.
   un grand pont, un camion. Leurs portes, leurs fenêtres et leurs lumières marchent.
 - **Visiter** sa construction en mode Visite, et ouvrir d'un toucher les portes, les fenêtres, les portières, les hayons et
   les portes de garage.
-- **Apprendre en jouant** : un guide de quinze petites missions montre les gestes à la première ouverture.
+- **Apprendre en jouant** : un guide de seize petites missions montre les gestes à la première ouverture.
 
 ## Les pièces
 
