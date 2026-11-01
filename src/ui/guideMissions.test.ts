@@ -30,15 +30,16 @@ const base: Facts = {
   opens: 0,
   examples: 0,
   lights: 0,
+  links: 0,
   modules: 0,
   moduleSel: 0,
 };
 const mission = (id: string) => MISSIONS.find((m) => m.id === id)!;
 
 describe('missions du guide', () => {
-  it('enchaîne quinze missions au plus ; la notice vient avant le retrait, pour qu’il reste des pièces à mettre dans le livre', () => {
-    expect(MISSIONS.map((m) => m.id)).toEqual(['choisir', 'deplacer', 'poser', 'pivoter', 'empiler', 'tourner', 'annuler', 'reprendre', 'module', 'notice', 'retirer', 'porte', 'visite', 'modele', 'ampoule']);
-    expect(MISSIONS.length).toBeLessThanOrEqual(15);
+  it('enchaîne seize missions au plus ; la notice vient avant le retrait, pour qu’il reste des pièces à mettre dans le livre', () => {
+    expect(MISSIONS.map((m) => m.id)).toEqual(['choisir', 'deplacer', 'poser', 'pivoter', 'empiler', 'tourner', 'annuler', 'reprendre', 'module', 'notice', 'retirer', 'porte', 'visite', 'modele', 'ampoule', 'relier']);
+    expect(MISSIONS.length).toBeLessThanOrEqual(16);
   });
 
   it('aucune mission n’est validée sans action du joueur', () => {
@@ -165,6 +166,14 @@ describe('missions du guide', () => {
     expect(m.target({ ...base, menuOpen: true })).toBe('[data-action="examples"]');
     expect(m.target({ ...base, examplesOpen: true })).toBe('.gallery .card .btn');
     expect(m.done({ ...base, examples: 1 }, base)).toBe(true);
+  });
+
+  it('relier : demande un modèle à interrupteur, l’outil Relier, puis un lien créé ou défait', () => {
+    const m = mission('relier');
+    expect(m.target({ ...base, hasSwitch: false })).toBe('.topbar .icon-btn');
+    expect(m.target({ ...base, hasSwitch: true })).toBe('.seg[data-tool="link"]');
+    expect(m.target({ ...base, hasSwitch: true, tool: 'link' })).toBe('.stage-canvas');
+    expect(m.done({ ...base, links: 1 }, base)).toBe(true);
   });
 
   it('ampoule : touche l’ampoule si le modèle a un interrupteur, sinon renvoie vers la Voiture', () => {

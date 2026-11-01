@@ -18,7 +18,7 @@ On assemble des briques sur une plaque, en 3D, sur téléphone, tablette ou ordi
 - **La notice** est calculée depuis la construction finie, puis **vérifiée** : rejouée dans un modèle vide, elle doit redonner exactement la même construction. Elle se lit comme un livre à pages qui se tournent, s'imprime et se télécharge en un fichier autonome.
 - **Six modèles d'exemple**, de la voiture au château, au pont et à la grande maison, avec leurs portes, fenêtres et lumières déjà réglées.
 - **Hors ligne** : le jeu s'installe sur l'écran d'accueil et fonctionne sans connexion. Les créations s'enregistrent toutes seules (IndexedDB) et peuvent aussi l'être dans un fichier `.briques.json`.
-- Un **guide** de quinze petites missions montre les gestes à la première ouverture.
+- Un **guide** de seize petites missions montre les gestes à la première ouverture.
 
 ## Lancer le projet
 

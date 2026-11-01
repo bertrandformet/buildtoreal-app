@@ -107,16 +107,16 @@ describe('modèles d’exemple', () => {
     expect(castle.pieces.filter((p) => p.typeId === 'brick-2x4' && p.z === 14 && p.x >= 11 && p.x <= 21)).toHaveLength(21);
     expect(castle.pieces.filter((p) => p.typeId === 'brick-1x2' && p.y === 40)).toHaveLength(20);
     expect(castle.pieces.filter((p) => p.typeId === 'column-4' && p.z === 29)).toHaveLength(4);
-    expect(castle.pieces.filter((p) => p.typeId === 'corner-2x2' && p.y === 45)).toHaveLength(16);
+    expect(castle.pieces.filter((p) => p.typeId === 'brick-1x1' && p.y === 48 && p.color === 'blanc')).toHaveLength(24);
     expect(castle.pieces.some((p) => p.typeId.startsWith('plate-') && p.y === 18)).toBe(true);
   });
 
-  it('la grande maison est sur sept plaques de tailles et couleurs différentes (48 × 80) : herbe, sable, route', () => {
+  it('la grande maison est sur sept plaques de tailles et couleurs différentes (48 × 80) : herbe, route', () => {
     const game = buildExampleGame(EXAMPLES.find((m) => m.id === 'manor')!);
     const plates = game.model.plates;
     expect(plates).toHaveLength(7);
     expect([game.model.baseW, game.model.baseL]).toEqual([48, 80]);
-    expect(plates.map((p) => `${p.w}${p.color}`)).toEqual(['48vert', '16vert', '16sable', '16vert', '16gris', '16gris', '16gris']);
+    expect(plates.map((p) => `${p.w}${p.color}`)).toEqual(['48vert', '16vert', '16vert', '16vert', '16gris', '16gris', '16gris']);
   });
 
   it('la grande maison a un grenier (plancher à 18 plaques, escalier, une fenêtre à chaque pignon) et un vrai toit en triangle', () => {
@@ -256,7 +256,7 @@ describe('modèles d’exemple', () => {
   it('le château a un module « Tour » construit une fois et posé quatre fois ; le pont, un module « Pile » (quatre fois) et un module « Arche » (deux fois)', () => {
     const modules = (id: string) => buildExampleGame(EXAMPLES.find((m) => m.id === id)!).modules;
     const castle = modules('castle');
-    expect(castle.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Tour:36+3', 'Sapin:12+1']);
+    expect(castle.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Tour:44+3', 'Sapin:12+1']);
     const bridge = modules('bridge');
     expect(bridge.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Pile:12+3', 'Arche:20+1', 'Sapin:12+1', 'Voiture:'+bridge[3]!.pieceIds.length+'+undefined']);
   });

@@ -309,10 +309,15 @@ function castle(): PieceSpec[] {
           out.push(piece('brick-2x4', color, x0, y, z0, 0), piece('brick-2x4', color, x0 + 2, y, z0, 0));
         }
       }
-      out.push(piece('corner-2x2', 'marine', x0, 45, z0, 2), piece('corner-2x2', 'marine', x0 + 2, 45, z0, 3));
-      out.push(piece('corner-2x2', 'marine', x0, 45, z0 + 2, 1), piece('corner-2x2', 'marine', x0 + 2, 45, z0 + 2, 0));
-      // La balise est dans le coin opposé à l'est : une tour de l'est est celle de l'ouest tournée d'un demi-tour (module « Tour »).
-      out.push(piece('brick-2x2', 'jaune', x0 + 1, 48, z0 + 1), piece('column-1', 'orange-lumi', x0 + (east ? 2 : 1), 51, z0 + (east ? 2 : 1)));
+      // Créneaux : une brique sur deux du pourtour, sur deux rangs (la parité résiste au demi-tour : une tour de l'est est celle de l'ouest tournée).
+      for (let dx = 0; dx < 4; dx++) {
+        for (let dz = 0; dz < 4; dz++) {
+          if ((dx > 0 && dx < 3 && dz > 0 && dz < 3) || (dx + dz) % 2 !== 0) continue;
+          for (const y of [45, 48]) out.push(piece('brick-1x1', BAND, x0 + dx, y, z0 + dz));
+        }
+      }
+      // La balise est dans le coin opposé à l'est (module « Tour ») : brique d'or au centre, lampe orange au-dessus.
+      out.push(piece('brick-2x2', 'jaune', x0 + 1, 45, z0 + 1), piece('column-1', 'orange-lumi', x0 + (east ? 2 : 1), 48, z0 + (east ? 2 : 1)));
     }
   }
   // Portique : quatre colonnes de six briques, deux poutres 2×8 et un auvent de pentes douces au-dessus de la double porte.
@@ -324,6 +329,12 @@ function castle(): PieceSpec[] {
   out.push(piece('brick-1x2', 'gris', 32, 0, 14, 0), piece(SWITCH_ID, 'blanc', 32, 3, 14, 0));
   for (const [x, z] of [[13, 22], [13, 25], [20, 25], [27, 25], [31, 25], [27, 22]] as const) out.push(piece('column-3', 'jaune-lumi', x, 19, z));
   out.push(piece('brick-1x2', 'gris', 32, 19, 14, 0), piece(SWITCH_ID, 'blanc', 32, 22, 14, 0));
+  // Rez-de-chaussée : un canapé et son dossier, une table à six chaises, une étagère garnie de livres.
+  out.push(piece('brick-2x4', 'rose', 24, 0, 14, 1), piece('brick-1x4', 'rose', 24, 0, 13, 1));
+  out.push(piece('brick-2x6', 'marron', 24, 0, 22, 1));
+  for (const x of [24, 26, 28]) for (const z of [21, 24]) out.push(piece('brick-1x1', 'rouge', x, 0, z));
+  out.push(piece('brick-1x6', 'marron', 14, 0, 13, 1));
+  for (const [x, color] of [[14, 'rouge'], [15, 'bleu'], [16, 'jaune'], [17, 'vert'], [18, 'orange'], [19, 'violet']] as const) out.push(piece('brick-1x1', color, x, 3, 13));
   // Dehors : allée sable, quatre torches et leur interrupteur, des fleurs.
   for (const x of [19, 21, 23]) out.push(piece('plate-2x8', 'sable', x, 0, 30, 0));
   for (const z of [32, 36]) out.push(piece('column-3', 'orange-lumi', 18, 0, z), piece('column-3', 'orange-lumi', 25, 0, z));
@@ -408,7 +419,7 @@ type CarRange = readonly [start: number, end: number];
 
 /**
  * Grande maison sur sept plaques de tailles et de couleurs différentes (48 × 80) : la pelouse (48 × 48, vert herbe), une rangée de trois
- * plaques de 16 devant (herbe, sable, herbe) et la route (trois plaques de 16, gris). Le corps de logis de 24 × 16 tenons a un rez-de-chaussée
+ * plaques de 16 devant (herbe, herbe, herbe) et la route (trois plaques de 16, gris). Le corps de logis de 24 × 16 tenons a un rez-de-chaussée
  * de six briques (double porte, onze fenêtres, une cloison à porte intérieure), un grenier au plancher de plaques sable relié par un escalier,
  * une fenêtre à chaque pignon, et un vrai toit à deux pans en gradins de pentes douces (pignons triangulaires), avec une cheminée. À droite,
  * un garage de 12 × 16 à grande porte, plancher gris et toit à deux pans abrite une grande voiture. Devant : une allée sable de 36 tenons
@@ -471,9 +482,9 @@ function manor(): { pieces: PieceSpec[]; cars: CarRange[] } {
   out.push(piece('column-3', 'jaune-lumi', 36, 1, 14), piece('column-3', 'jaune-lumi', 43, 1, 14));
   out.push(piece('brick-1x2', 'gris', 44, 1, 25, 0), piece(SWITCH_ID, 'blanc', 44, 4, 25, 0));
 
-  // Devant la porte : un paillasson, une allée sable de 36 tenons (plaques sur la pelouse, puis la plaque sable) et dix torches.
+  // Devant la porte : un paillasson, une allée sable de 36 tenons (des plaques de 2 × 8 sur la pelouse, jusqu'à la route) et dix torches.
   out.push(piece('tile-2x6', 'anthracite', 19, 0, 28, 1));
-  for (const x of [19, 21, 23]) out.push(piece('plate-2x8', 'sable', x, 0, 30, 0), piece('plate-2x8', 'sable', x, 0, 38, 0), piece('plate-2x2', 'sable', x, 0, 46));
+  for (const x of [19, 21, 23]) out.push(piece('plate-2x8', 'sable', x, 0, 30, 0), piece('plate-2x8', 'sable', x, 0, 38, 0), piece('plate-2x2', 'sable', x, 0, 46), piece('plate-2x8', 'sable', x, 0, 48, 0), piece('plate-2x8', 'sable', x, 0, 56, 0));
   for (const z of [32, 38, 44, 52, 58]) out.push(piece('column-3', 'orange-lumi', 18, 0, z), piece('column-3', 'orange-lumi', 25, 0, z));
   out.push(piece('brick-1x2', 'gris', 27, 0, 29, 0), piece(SWITCH_ID, 'jaune', 27, 3, 29, 0));
   // Allée du garage, en plaques grises, de la porte à la route.
@@ -687,7 +698,7 @@ const MODELS: ExampleModel[] = [
     base: { size: 48, color: 'vert' },
     plates: [
       { from: 0, side: 'z+', size: 16, color: 'vert' },
-      { from: 1, side: 'x+', size: 16, color: 'sable' },
+      { from: 1, side: 'x+', size: 16, color: 'vert' },
       { from: 2, side: 'x+', size: 16, color: 'vert' },
       { from: 1, side: 'z+', size: 16, color: 'gris' },
       { from: 4, side: 'x+', size: 16, color: 'gris' },

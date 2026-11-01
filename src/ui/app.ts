@@ -142,7 +142,7 @@ export class App {
   /** Choix de pièce de l'outil Construire, mis de côté pendant qu'une pièce est soulevée (la pièce soulevée prend sa place dans l'état). */
   private liftSaved: { typeId: string; color: string; orient: Orient; kind: PieceKind; dy: number } | null = null;
   // Compteurs d'actions du joueur, lus par le guide.
-  private counts = { turns: 0, undos: 0, redos: 0, picks: 0, removals: 0, moves: 0, opens: 0, examples: 0, lights: 0 };
+  private counts = { turns: 0, undos: 0, redos: 0, picks: 0, removals: 0, moves: 0, opens: 0, examples: 0, lights: 0, links: 0 };
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private viewBtn!: HTMLButtonElement;
@@ -2009,6 +2009,7 @@ export class App {
     if (!this.canEdit()) return;
     const linked = this.game.toggleLink(this.linkSwitchId, piece.id);
     this.sound.play('step');
+    this.counts.links += 1;
     this.showToast(t(linked ? 'link.linked' : 'link.unlinked'), 'ok');
   }
 

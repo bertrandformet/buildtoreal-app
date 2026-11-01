@@ -41,6 +41,8 @@ export interface Facts {
   readonly opens: number;
   readonly examples: number;
   readonly lights: number;
+  /** Liens créés ou défaits avec l'outil Relier. */
+  readonly links: number;
   /** Nombre de modules, et de pièces choisies avec l'outil Module. */
   readonly modules: number;
   readonly moduleSel: number;
@@ -159,5 +161,11 @@ export const MISSIONS: readonly Mission[] = [
     textKey: (f) => (f.hasSwitch ? 'guide.light' : 'guide.light.need'),
     target: (f) => (f.hasSwitch ? '.lights-btn' : '.topbar .icon-btn'),
     done: (f, b) => f.lights > b.lights,
+  },
+  {
+    id: 'relier',
+    textKey: (f) => (!f.hasSwitch ? 'guide.link.need' : f.tool !== 'link' ? 'guide.link.tool' : 'guide.link.pick'),
+    target: (f) => (!f.hasSwitch ? '.topbar .icon-btn' : f.tool !== 'link' ? '.seg[data-tool="link"]' : '.stage-canvas'),
+    done: (f, b) => f.links > b.links,
   },
 ];
