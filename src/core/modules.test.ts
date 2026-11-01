@@ -156,13 +156,17 @@ describe('fichiers', () => {
     expect(legacy.ok && gameFromProject(legacy.data).modules.length).toBe(0);
   });
 
-  it('refuse un module avec une pièce inconnue, ou une pièce dans deux modules', () => {
+  it('ignore un module avec une pièce inconnue, ou le second quand une pièce est dans deux modules (le projet reste lisible)', () => {
     const { game, ids } = house();
     const base = projectFromGame(game, { id: 'essai', name: 'Essai', createdAt: 1, updatedAt: 1 });
     const unknown = { ...base, modules: [{ id: 1, name: 'A', pieces: [ids[0]!, 9999] }] };
-    expect(parseProject(JSON.parse(JSON.stringify(unknown))).ok).toBe(false);
+    const readUnknown = parseProject(JSON.parse(JSON.stringify(unknown)));
+    expect(readUnknown.ok && readUnknown.data.modules).toEqual([]);
     const twice = { ...base, modules: [{ id: 1, name: 'A', pieces: [ids[0]!, ids[1]!] }, { id: 2, name: 'B', pieces: [ids[1]!, ids[2]!] }] };
-    expect(parseProject(JSON.parse(JSON.stringify(twice))).ok).toBe(false);
+    const readTwice = parseProject(JSON.parse(JSON.stringify(twice)));
+    if (!readTwice.ok) throw new Error('lecture');
+    expect(readTwice.data.modules?.map((m) => m.id)).toEqual([1]);
+    expect(readTwice.data.pieces).toHaveLength(base.pieces.length);
   });
 });
 
@@ -293,7 +297,9 @@ describe('copies d’un module', () => {
     if (!parsed.ok) throw new Error('lecture');
     expect(gameFromProject(parsed.data).modules[0]!.copies).toHaveLength(1);
     const bad = { ...data, modules: [{ ...data.modules![0]!, copies: [[9999, 9998]] }] };
-    expect(parseProject(JSON.parse(JSON.stringify(bad))).ok).toBe(false);
+    const readBad = parseProject(JSON.parse(JSON.stringify(bad)));
+    if (!readBad.ok) throw new Error('lecture');
+    expect(readBad.data.modules?.[0]?.copies).toBeUndefined();
   });
 
   it('toucher une pièce d’une copie la donne comme exemplaire du module', () => {

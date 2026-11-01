@@ -203,13 +203,18 @@ export function flatRows(type: PieceType): number {
   return type.shape === 'steep' || type.shape === 'gentle' ? type.l - SLOPE_ROWS[type.shape] : 0;
 }
 
+/** Lecture d'une table par identifiant, sans remonter la chaîne de prototypes (« constructor », « __proto__ »… ne sont pas des pièces). */
+function own<T>(table: Readonly<Record<string, T>>, id: string): T | undefined {
+  return Object.hasOwn(table, id) ? table[id] : undefined;
+}
+
 const cache = new Map<string, PieceType>();
 
 /** Construit (ou retrouve) un type à partir de son identifiant. Retourne undefined si l'identifiant est invalide. */
 export function getType(id: string): PieceType | undefined {
   const known = cache.get(id);
   if (known) return known;
-  const bricks = COLUMN_HEIGHTS[id];
+  const bricks = own(COLUMN_HEIGHTS, id);
   if (bricks) {
     const type: PieceType = { id, kind: 'brick', shape: 'round', w: 1, l: 1, h: bricks * KIND_HEIGHT.brick, studs: true };
     cache.set(id, type);
@@ -220,19 +225,19 @@ export function getType(id: string): PieceType | undefined {
     cache.set(id, type);
     return type;
   }
-  const opening = OPENINGS[id];
+  const opening = own(OPENINGS, id);
   if (opening) {
     const type: PieceType = { id, kind: 'opening', shape: opening.shape, w: opening.w, l: opening.l, h: opening.h, studs: true, ...(opening.mirror ? { mirror: true } : {}) };
     cache.set(id, type);
     return type;
   }
-  const disc = ROUND_PLATES[id];
+  const disc = own(ROUND_PLATES, id);
   if (disc) {
     const type: PieceType = { id, kind: 'plate', shape: 'round', w: disc, l: disc, h: KIND_HEIGHT.plate, studs: true };
     cache.set(id, type);
     return type;
   }
-  const wheel = WHEEL_SPECS[id];
+  const wheel = own(WHEEL_SPECS, id);
   if (wheel) {
     const type: PieceType = { id, kind: 'wheel', shape: 'wheels', w: 2, l: wheel.holderL + wheel.sides, h: wheel.d, studs: true, wheel };
     cache.set(id, type);

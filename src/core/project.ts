@@ -4,12 +4,12 @@
 import { BASE_COLORS, getType, isGlow, isKnownColor, isOpening, isSwitch, normalizeOrient, requireType } from './catalogue';
 import { Game } from './game';
 import { legacyLinks } from './lights';
-import { MAX_EXTENT, Model, parsePlates, type BasePlate, type Piece } from './model';
-import { MAX_MODULE_NAME, MIN_MODULE_PIECES } from './modules';
+import { MAX_EXTENT, MAX_PIECES, Model, parsePlates, type BasePlate, type Piece } from './model';
+import { MAX_COPIES, MAX_MODULE_NAME, MAX_MODULES, MIN_MODULE_PIECES } from './modules';
 import { checkInvariants } from './rules';
 
 export const PROJECT_SCHEMA = 1;
-export const MAX_PROJECT_PIECES = 5000;
+export const MAX_PROJECT_PIECES = MAX_PIECES;
 
 export interface ProjectData {
   readonly schema: typeof PROJECT_SCHEMA;
@@ -167,30 +167,29 @@ export function parseProject(raw: unknown): ProjectParse {
   }
   const rawModules = r['modules'];
   let modules: Array<{ id: number; name: string; pieces: number[]; copies?: number[][] }> | undefined;
-  if (rawModules !== undefined) {
-    if (!Array.isArray(rawModules) || rawModules.length > 200) return bad('modules invalides');
+  if (rawModules !== undefined && Array.isArray(rawModules)) {
+    // Les modules sont facultatifs : un module abîmé est ignoré (les pièces restent), jamais le projet entier.
     const ids = new Set(pieces.map((p) => p.id));
     const taken = new Set<number>();
+    const valid = (list: unknown[]) => list.length >= MIN_MODULE_PIECES && list.every((id) => INT(id, 1, 1e9) && ids.has(id as number) && !taken.has(id as number));
     modules = [];
-    for (const m of rawModules) {
-      const q = m as { id?: unknown; name?: unknown; pieces?: unknown } | null;
-      if (!q || !INT(q.id, 1, 9999) || typeof q.name !== 'string' || q.name.length < 1 || q.name.length > MAX_MODULE_NAME || !Array.isArray(q.pieces)) return bad('modules invalides');
+    for (const m of rawModules.slice(0, MAX_MODULES)) {
+      const q = m as { id?: unknown; name?: unknown; pieces?: unknown; copies?: unknown } | null;
+      if (!q || !INT(q.id, 1, 1e9) || typeof q.name !== 'string' || q.name.length < 1 || q.name.length > MAX_MODULE_NAME || !Array.isArray(q.pieces)) continue;
+      if (modules.some((x) => x.id === q.id)) continue;
       const list = [...new Set(q.pieces as unknown[])];
-      if (list.length < MIN_MODULE_PIECES || list.some((id) => !INT(id, 1, 1e9) || !ids.has(id as number) || taken.has(id as number))) return bad('modules invalides');
+      if (!valid(list)) continue;
       for (const id of list) taken.add(id as number);
-      let copies: number[][] | undefined;
-      const rawCopies = (q as { copies?: unknown }).copies;
-      if (rawCopies !== undefined) {
-        if (!Array.isArray(rawCopies) || rawCopies.length > 50) return bad('modules invalides');
-        copies = [];
-        for (const c of rawCopies) {
+      const copies: number[][] = [];
+      if (Array.isArray(q.copies)) {
+        for (const c of q.copies.slice(0, MAX_COPIES)) {
           const cl = Array.isArray(c) ? [...new Set(c as unknown[])] : [];
-          if (cl.length < MIN_MODULE_PIECES || cl.some((id) => !INT(id, 1, 1e9) || !ids.has(id as number) || taken.has(id as number))) return bad('modules invalides');
+          if (!valid(cl)) continue;
           for (const id of cl) taken.add(id as number);
           copies.push(cl as number[]);
         }
       }
-      modules.push({ id: q.id, name: q.name, pieces: list as number[], ...(copies && copies.length > 0 ? { copies } : {}) });
+      modules.push({ id: q.id, name: q.name, pieces: list as number[], ...(copies.length > 0 ? { copies } : {}) });
     }
   }
   const rawLinks = r['switchLinks'];

@@ -6,7 +6,7 @@
 // pièce qui n'en fait pas partie (les pièces de l'ensemble restent clipsées entre elles).
 
 import { footprintSize, normalizeOrient, requireType } from './catalogue';
-import { pieceExtent, pieceType, studAt, type Cell, type Model, type Piece } from './model';
+import { MAX_PIECES, pieceExtent, pieceType, studAt, type Cell, type Model, type Piece } from './model';
 import { dependentsOf, stackTop, supportsOf, type PlacementReason } from './rules';
 
 /** La pièce et tout ce qui repose dessus, de proche en proche. Identifiants triés, la pièce touchée comprise. */
@@ -123,6 +123,7 @@ export interface GroupPlacementResult {
 
 /** Pose d'un ensemble déjà placé (voir `transformGroup`) dans un modèle qui ne le contient pas. */
 export function evaluateGroupPlacement(model: Model, pieces: readonly Piece[]): GroupPlacementResult {
+  if (model.count + pieces.length > MAX_PIECES) return { ok: false, reason: 'limite', supportedCells: [], collidingCells: [] };
   const supportedCells: Cell[] = [];
   const collidingCells: Cell[] = [];
   let tileBelow = false;

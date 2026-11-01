@@ -1,11 +1,11 @@
 // Service worker : le jeu s'ouvre hors ligne, dès la première visite avec connexion.
 // - À l'installation, tous les fichiers du jeu sont mis en mémoire d'un coup (liste écrite par `scripts/precache.ts` à la construction).
-// - Les fichiers à nom unique (code, styles, police) sortent de la mémoire d'abord ; la page d'accueil passe par le réseau, avec la mémoire en secours.
+// - Tout sort de la mémoire de la version active, page d'accueil comprise : la page et ses fichiers sont toujours de la même version, même si la connexion tombe entre les deux.
+//   Le réseau ne sert qu'à détecter une nouvelle version (le navigateur recharge sw.js) et de secours si la mémoire n'a pas la page.
 // - Une nouvelle version s'installe en attente : elle ne prend la main que sur demande du joueur (bandeau « Nouvelle version »).
 // - Il ne touche jamais aux projets : ceux-ci vivent dans IndexedDB, pas dans ces mémoires.
 const CACHE = 'bt-__VERSION__';
 const PRECACHE = /*__PRECACHE__*/[];
-const NAVIGATION_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -29,22 +29,6 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('délai dépassé')), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -54,14 +38,10 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const cache = await caches.open(CACHE);
       if (request.mode === 'navigate') {
-        // Page d'accueil : le réseau d'abord (toujours la dernière version en ligne), la mémoire si le réseau manque ou tarde.
-        try {
-          return await withTimeout(fetch(request), NAVIGATION_TIMEOUT_MS);
-        } catch (error) {
-          const shell = (await cache.match(new URL('./index.html', self.registration.scope), { ignoreVary: true })) || (await cache.match(new URL('./', self.registration.scope), { ignoreVary: true }));
-          if (shell) return shell;
-          throw error;
-        }
+        // Page d'accueil : celle de la version active (une nouvelle version attend le bandeau « Nouvelle version »), le réseau seulement si elle manque.
+        const shell = (await cache.match(new URL('./index.html', self.registration.scope), { ignoreVary: true })) || (await cache.match(new URL('./', self.registration.scope), { ignoreVary: true }));
+        if (shell) return shell;
+        return fetch(request);
       }
       // Certains serveurs répondent « Vary: Origin » : sans ignoreVary, un script de la page ne retrouverait pas son exemplaire préchargé.
       const hit = await cache.match(request, { ignoreSearch: true, ignoreVary: true });

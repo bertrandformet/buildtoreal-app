@@ -5,9 +5,9 @@
 // Suppression valide : refusée seulement si une autre pièce perdrait son dernier appui.
 
 import { footprintSize, normalizeOrient, requireType, type Orient } from './catalogue';
-import { pieceExtent, pieceType, studAt, type Cell, type Model, type Piece } from './model';
+import { MAX_PIECES, pieceExtent, pieceType, studAt, type Cell, type Model, type Piece } from './model';
 
-export type PlacementReason = 'hors_plaque' | 'trop_haut' | 'collision' | 'sans_appui' | 'tuile';
+export type PlacementReason = 'hors_plaque' | 'trop_haut' | 'collision' | 'sans_appui' | 'tuile' | 'limite';
 
 export interface PlacementQuery {
   readonly typeId: string;
@@ -27,6 +27,7 @@ export interface PlacementResult {
 }
 
 export function evaluatePlacement(model: Model, q: PlacementQuery): PlacementResult {
+  if (model.count >= MAX_PIECES) return { ok: false, reason: 'limite', supportedCells: [], collidingCells: [] };
   const type = requireType(q.typeId);
   const orient: Orient = normalizeOrient(type, q.orient);
   const { fx, fz } = footprintSize(type, orient);

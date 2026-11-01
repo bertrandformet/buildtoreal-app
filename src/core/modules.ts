@@ -20,6 +20,8 @@ export interface ModuleDef {
 }
 
 export const MIN_MODULE_PIECES = 2;
+export const MAX_MODULES = 200;
+export const MAX_COPIES = 50;
 export const MAX_MODULE_NAME = 40;
 /** Couleur de la petite plaque sur laquelle un module se construit, dans la notice. */
 export const MODULE_PLATE_COLOR = 'gris';

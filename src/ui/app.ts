@@ -24,7 +24,7 @@ import {
   type PieceKind,
 } from '../core/catalogue';
 import { Game, edgeHints, plateBeside, type PlateHint } from '../core/game';
-import { MAX_EXTENT } from '../core/model';
+import { MAX_EXTENT, MAX_PLATES } from '../core/model';
 import { evaluateGroupPlacement, groupAbove, groupBounds, groupConnected, groupFootprint, groupLanding, transformGroup } from '../core/group';
 import { buildDenseReference } from '../core/reference';
 import { moduleProblem } from '../core/modules';
@@ -598,7 +598,7 @@ export class App {
   /** Cases « + » près du bord où l'on construit (pièce visée ou ensemble soulevé). */
   private refreshPlateHints(): void {
     this.plateHints = [];
-    if (this.offerPlates && this.placing() && this.canEdit()) {
+    if (this.offerPlates && this.placing() && this.canEdit() && this.game.model.plates.length < MAX_PLATES) {
       const rect = this.groupLifted()
         ? { ...this.groupGhostQuery(), ...groupFootprint(this.game.liftedGroup, this.liftTurns) }
         : (() => {
@@ -691,7 +691,7 @@ export class App {
       if (!pending || !this.canEdit()) return;
       const out = this.game.addPlate(pending.from, pending.side, size, color);
       if (!out.ok) {
-        status.textContent = t(out.reason === 'occupe' ? 'plate.occupied' : 'plate.tooBig');
+        status.textContent = t(out.reason === 'occupe' ? 'plate.occupied' : out.reason === 'limite' ? 'plate.limit' : 'plate.tooBig');
         return;
       }
       overlay.hidden = true;
@@ -1054,7 +1054,7 @@ export class App {
       if (!this.canEdit()) return;
       const out = this.game.beginModuleOnPlate(this.moduleName.value || t('module.default', { n: this.game.modules.length + 1 }));
       if (!out.ok) {
-        this.showToast(t(out.reason === 'pas_de_place' ? 'module.noRoom' : 'module.problem.other'), 'error');
+        this.showToast(t(out.reason === 'pas_de_place' ? 'module.noRoom' : out.reason === 'limite' ? 'module.limit' : 'module.problem.other'), 'error');
         return;
       }
       this.sound.play('step');
@@ -1944,7 +1944,7 @@ export class App {
   }
 
   private moduleProblemKey(reason: string): Key {
-    return (['sans_appui', 'deja_module', 'trop_peu'].includes(reason) ? `module.problem.${reason}` : 'module.problem.other') as Key;
+    return (['sans_appui', 'deja_module', 'trop_peu', 'limite'].includes(reason) ? `module.problem.${reason}` : 'module.problem.other') as Key;
   }
 
   /** Panneau et surbrillance de l'outil Module : la sélection en vert, ou tous les modules s'il n'y a pas de sélection. */

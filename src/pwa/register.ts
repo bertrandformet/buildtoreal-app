@@ -13,6 +13,11 @@ export function registerServiceWorker(onUpdateReady: (apply: () => void) => void
   });
   const offer = (worker: ServiceWorker) =>
     onUpdateReady(() => {
+      // Un autre onglet a déjà mis cette version en service : rien à demander, il suffit de recharger celui-ci.
+      if (worker.state !== 'installed') {
+        location.reload();
+        return;
+      }
       applying = true;
       worker.postMessage({ type: 'SKIP_WAITING' });
     });
@@ -32,6 +37,7 @@ export function registerServiceWorker(onUpdateReady: (apply: () => void) => void
       });
     });
     const check = () => void registration.update().catch(() => undefined);
+    check();
     window.setInterval(check, CHECK_EVERY_MS);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') check();

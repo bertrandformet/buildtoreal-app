@@ -55,6 +55,9 @@ export interface BasePlate {
 
 /** Côté le plus long de la surface entière, en tenons : la surface tient toujours dans ce carré (16 384 tenons au plus). */
 export const MAX_EXTENT = 128;
+/** Plafonds que le jeu respecte et que la relecture d'un projet accepte : ce que le jeu enregistre doit toujours se rouvrir. */
+export const MAX_PIECES = 5000;
+export const MAX_PLATES = 16;
 
 export function platesOverlap(a: BasePlate, b: BasePlate): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.z < b.z + b.l && b.z < a.z + a.l;
@@ -67,7 +70,7 @@ const INT = (v: unknown, lo: number, hi: number): v is number => typeof v === 'n
  * dans le carré de 64 tenons. Renvoie null si quelque chose cloche.
  */
 export function parsePlates(raw: unknown): BasePlate[] | null {
-  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 16) return null;
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_PLATES) return null;
   const plates: BasePlate[] = [];
   for (const q of raw) {
     const r = q as Record<string, unknown> | null;

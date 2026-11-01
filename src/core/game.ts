@@ -4,9 +4,9 @@
 // annuler puis rétablir redonne donc exactement le même modèle.
 
 import { Journal } from './journal';
-import { MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, sameShapeTurned, type ModuleDef } from './modules';
+import { MAX_COPIES, MAX_MODULES, MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, sameShapeTurned, type ModuleDef } from './modules';
 import { isGlow, isOpening, isSwitch, normalizeOrient, requireType } from './catalogue';
-import { MAX_EXTENT, Model, pieceExtent, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
+import { MAX_EXTENT, MAX_PIECES, MAX_PLATES, Model, pieceExtent, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
 import { evaluateGroupPlacement, transformGroup } from './group';
 import { evaluatePlacement, evaluateRemoval, supportsOf, type PlacementReason } from './rules';
 
@@ -29,7 +29,7 @@ export type PlateSide = 'x-' | 'x+' | 'z-' | 'z+';
 
 export type AddPlateOutcome =
   | { readonly ok: true; readonly plate: BasePlate; readonly dx: number; readonly dz: number }
-  | { readonly ok: false; readonly reason: 'occupe' | 'trop_grand' };
+  | { readonly ok: false; readonly reason: 'occupe' | 'trop_grand' | 'limite' };
 
 /**
  * Où irait une plaque de `size` × `size` ajoutée du côté `side` de la plaque `from` : collée à ce côté, alignée sur son coin.
@@ -224,10 +224,19 @@ export class Game {
    */
   get modules(): readonly ModuleDef[] {
     const out: ModuleDef[] = [];
+    // Une pièce n'est que dans un seul module : si un module masqué (retiré puis rétabli par ↶) en rejoint un autre, le premier créé garde la pièce.
+    const taken = new Set<number>();
     for (const m of this.moduleMap.values()) {
       const ids = m.pieceIds.filter((id) => this.model.get(id));
-      if (ids.length < MIN_MODULE_PIECES) continue;
-      const copies = (m.copies ?? []).filter((c) => c.length > 0 && c.every((id) => this.model.get(id)));
+      if (ids.length < MIN_MODULE_PIECES || ids.some((id) => taken.has(id))) continue;
+      for (const id of ids) taken.add(id);
+      const copies: number[][] = [];
+      for (const c of m.copies ?? []) {
+        if (copies.length >= MAX_COPIES) break;
+        if (c.length === 0 || !c.every((id) => this.model.get(id) && !taken.has(id))) continue;
+        for (const id of c) taken.add(id);
+        copies.push([...c]);
+      }
       out.push({ id: m.id, name: m.name, pieceIds: ids, ...(copies.length > 0 ? { copies } : {}) });
     }
     return out;
@@ -257,6 +266,7 @@ export class Game {
     const m = this.moduleMap.get(moduleId);
     const pieces = ids.map((id) => this.model.get(id));
     if (!m || pieces.length === 0 || pieces.some((p) => !p)) return { ok: false, reason: 'absente' };
+    if ((m.copies?.length ?? 0) >= MAX_COPIES || this.model.count + pieces.length > MAX_PIECES) return { ok: false, reason: 'limite' };
     const clones = (pieces as Piece[]).map((p) => this.model.createPiece({ typeId: p.typeId, color: p.color, x: p.x, y: p.y, z: p.z, orient: p.orient }));
     this.liftedPieces = clones;
     this.liftedCopyOf = moduleId;
@@ -272,6 +282,7 @@ export class Game {
     const unique = [...new Set(ids)];
     if (unique.some((id) => !this.model.get(id))) return { ok: false, reason: 'absente' };
     if (unique.length < MIN_MODULE_PIECES) return { ok: false, reason: 'trop_peu' };
+    if (this.moduleMap.size >= MAX_MODULES) return { ok: false, reason: 'limite' };
     if (unique.some((id) => this.moduleOf(id))) return { ok: false, reason: 'deja_module' };
     const local = localizeModule(this.model, unique);
     if ('problem' in local) return { ok: false, reason: local.problem };
@@ -297,6 +308,7 @@ export class Game {
     if ('problem' in other) return { ok: false, reason: other.problem };
     if (!sameShapeTurned(first.pieces, other.pieces)) return { ok: false, reason: 'forme_differente' };
     const stored = this.moduleMap.get(moduleId)!;
+    if ((stored.copies?.length ?? 0) >= MAX_COPIES) return { ok: false, reason: 'limite' };
     this.moduleMap.set(moduleId, { ...stored, copies: [...(stored.copies ?? []), unique] });
     this.emit();
     return { ok: true };
@@ -321,6 +333,7 @@ export class Game {
    */
   beginModule(name: string): { readonly ok: true; readonly module: ModuleDef } | { readonly ok: false; readonly reason: string } {
     if (this.building !== null && this.moduleMap.has(this.building)) return { ok: false, reason: 'en_cours' };
+    if (this.moduleMap.size >= MAX_MODULES) return { ok: false, reason: 'limite' };
     const id = this.nextModuleId++;
     const module: ModuleDef = { id, name: name.trim().slice(0, MAX_MODULE_NAME) || `Module ${id}`, pieceIds: [] };
     this.moduleMap.set(id, module);
@@ -495,6 +508,7 @@ export class Game {
     this.cancelLift();
     const src = this.model.plates[from];
     if (!src) return { ok: false, reason: 'occupe' };
+    if (this.model.plates.length >= MAX_PLATES) return { ok: false, reason: 'limite' };
     const beside = plateBeside(this.model.plates, src, side, size, color);
     if (!beside.ok) return beside;
     const placed = beside.plate;
