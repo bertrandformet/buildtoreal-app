@@ -212,3 +212,97 @@ describe('module commencé sans pièce', () => {
     expect(game.beginModule('Autre').ok).toBe(true);
   });
 });
+
+describe('copies d’un module', () => {
+  /** Un module de deux pièces (une roue : un support et un dessus), qu'on copie trois fois, dont une tournée. */
+  function wheels() {
+    const game = new Game(24, 24, 'vert', () => 0);
+    const a = put(game, 'brick-2x4', 2, 0, 2, 'noir');
+    const b = put(game, 'brick-2x2', 2, 3, 2, 'jaune');
+    const created = game.createModule([a.id, b.id], 'Roue');
+    if (!created.ok) throw new Error('création');
+    return { game, module: created.module };
+  }
+  const copy = (game: Game, moduleId: number, ids: readonly number[], turns: number, x: number, z: number) => {
+    const lift = game.liftModuleCopy(moduleId, ids);
+    if (!lift.ok) throw new Error(lift.reason);
+    const out = game.dropGroup({ x, y: 0, z, turns });
+    if (!out.ok) throw new Error(`pose de la copie refusée : ${out.reason}`);
+  };
+
+  it('soulever une copie ne touche pas aux pièces ; la poser ajoute des pièces neuves et un exemplaire, en un pas d’historique', () => {
+    const { game, module } = wheels();
+    const before = game.model.count;
+    expect(game.liftModuleCopy(module.id, module.pieceIds).ok).toBe(true);
+    expect(game.model.count).toBe(before);
+    game.cancelLift();
+    expect(game.model.count).toBe(before);
+    expect(game.exportState().pieces).toHaveLength(before);
+    copy(game, module.id, module.pieceIds, 0, 10, 2);
+    expect(game.model.count).toBe(before + 2);
+    expect(game.modules[0]!.copies).toHaveLength(1);
+    game.undo();
+    expect(game.model.count).toBe(before);
+    expect(game.modules[0]!.copies).toBeUndefined();
+    game.redo();
+    expect(game.modules[0]!.copies).toHaveLength(1);
+  });
+
+  it('refuse de poser la copie sur l’original', () => {
+    const { game, module } = wheels();
+    game.liftModuleCopy(module.id, module.pieceIds);
+    expect(game.dropGroup({ x: 2, y: 0, z: 2, turns: 0 }).ok).toBe(false);
+  });
+
+  it('la notice construit le module une fois (« 3 exemplaires ») puis le pose trois fois, même tourné ; elle se rejoue', () => {
+    const { game, module } = wheels();
+    copy(game, module.id, module.pieceIds, 0, 10, 2);
+    copy(game, module.id, module.pieceIds, 1, 2, 10);
+    const notice = buildNotice(game.model, game.baseColor, 6, game.modules);
+    const builds = notice.steps.filter(isModuleBuild);
+    const places = notice.steps.filter((s) => s.module?.role === 'place');
+    expect(builds.length).toBeGreaterThan(0);
+    expect(builds.every((s) => s.module?.instances === 3)).toBe(true);
+    expect(places.map((s) => `${s.module?.instance}/${s.module?.instances}`)).toEqual(['1/3', '2/3', '3/3']);
+    const replay = replayNotice(notice);
+    expect(replay.errors).toEqual([]);
+    expect(sameConstruction(replay.model, game.model)).toBe(true);
+    expect(noticePieceCount(notice)).toBe(game.model.count);
+    // Les copies sont des pièces de plus : 6 pièces posées en tout, 2 construites à part.
+    expect(builds.flatMap((s) => s.pieces)).toHaveLength(2);
+  });
+
+  it('une copie qui n’a plus la même forme est ignorée : ses pièces sont posées comme les autres', () => {
+    const { game, module } = wheels();
+    copy(game, module.id, module.pieceIds, 0, 10, 2);
+    const extra = game.modules[0]!.copies![0]!;
+    const top = game.model.get(extra[1]!)!;
+    game.remove(top.id);
+    put(game, 'brick-2x2', top.x, top.y, top.z, 'rouge');
+    const notice = buildNotice(game.model, game.baseColor, 6, game.modules);
+    expect(notice.steps.filter((s) => s.module?.role === 'place')).toHaveLength(1);
+    expect(sameConstruction(replayNotice(notice).model, game.model)).toBe(true);
+  });
+
+  it('les copies sont enregistrées dans le projet et relues', () => {
+    const { game, module } = wheels();
+    copy(game, module.id, module.pieceIds, 0, 10, 2);
+    const data = projectFromGame(game, { id: 'essai', name: 'Essai', createdAt: 1, updatedAt: 1 });
+    expect(data.modules?.[0]?.copies).toHaveLength(1);
+    const parsed = parseProject(JSON.parse(serializeProject(data)));
+    if (!parsed.ok) throw new Error('lecture');
+    expect(gameFromProject(parsed.data).modules[0]!.copies).toHaveLength(1);
+    const bad = { ...data, modules: [{ ...data.modules![0]!, copies: [[9999, 9998]] }] };
+    expect(parseProject(JSON.parse(JSON.stringify(bad))).ok).toBe(false);
+  });
+
+  it('toucher une pièce d’une copie la donne comme exemplaire du module', () => {
+    const { game, module } = wheels();
+    copy(game, module.id, module.pieceIds, 0, 10, 2);
+    const copyIds = game.modules[0]!.copies![0]!;
+    const found = game.moduleInstance(copyIds[0]!);
+    expect(found?.index).toBe(1);
+    expect(found?.ids).toEqual(copyIds);
+    expect(game.moduleInstance(module.pieceIds[0]!)?.index).toBe(0);
+  });
+});

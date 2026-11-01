@@ -17,6 +17,8 @@ export type Command =
   | { readonly kind: 'move'; readonly before: Piece; readonly after: Piece }
   /** Déplacement d'un ensemble : les mêmes pièces avant et après, sur un seul pas d'historique. */
   | { readonly kind: 'moveGroup'; readonly before: readonly Piece[]; readonly after: readonly Piece[] }
+  /** Un exemplaire de module posé : de nouvelles pièces, d'un seul pas d'historique. */
+  | { readonly kind: 'placeGroup'; readonly pieces: readonly Piece[] }
   /** Plaque ajoutée à la surface ; `dx`, `dz` : décalage de tout le reste quand elle s'ajoute à gauche ou au fond. */
   | { readonly kind: 'addPlate'; readonly plate: BasePlate; readonly dx: number; readonly dz: number };
 
@@ -137,6 +139,8 @@ export class Game {
    * Une seule pour `lift`, un ensemble pour `liftGroup` ; la première est la pièce touchée.
    */
   private liftedPieces: Piece[] = [];
+  /** Module dont on pose un exemplaire : les pièces « soulevées » sont alors des copies, qui ne sont pas encore dans la construction. */
+  private liftedCopyOf: number | null = null;
   /** Interrupteurs éteints (identifiants). Un geste de jeu, pas de construction : hors historique. */
   private readonly off = new Set<number>();
   private readonly links = new Map<number, Set<number>>();
@@ -176,7 +180,7 @@ export class Game {
   /** État à enregistrer : les pièces soulevées y figurent, pour qu'un déplacement interrompu ne les perde jamais. */
   exportState(): ModelState {
     const state = this.model.exportState();
-    if (this.liftedPieces.length === 0) return state;
+    if (this.liftedPieces.length === 0 || this.liftedCopyOf !== null) return state;
     return { ...state, pieces: [...state.pieces, ...this.liftedPieces].sort((a, b) => a.id - b.id) };
   }
 
@@ -218,14 +222,42 @@ export class Game {
     const out: ModuleDef[] = [];
     for (const m of this.moduleMap.values()) {
       const ids = m.pieceIds.filter((id) => this.model.get(id));
-      if (ids.length >= MIN_MODULE_PIECES) out.push({ ...m, pieceIds: ids });
+      if (ids.length < MIN_MODULE_PIECES) continue;
+      const copies = (m.copies ?? []).filter((c) => c.length > 0 && c.every((id) => this.model.get(id)));
+      out.push({ id: m.id, name: m.name, pieceIds: ids, ...(copies.length > 0 ? { copies } : {}) });
     }
     return out;
   }
 
   /** Le module dont la pièce fait partie, s'il y en a un. */
   moduleOf(pieceId: number): ModuleDef | undefined {
-    return this.modules.find((m) => m.pieceIds.includes(pieceId));
+    return this.moduleInstance(pieceId)?.module;
+  }
+
+  /** Le module dont la pièce fait partie, avec les pièces de son exemplaire (0 : le premier, puis les copies). */
+  moduleInstance(pieceId: number): { readonly module: ModuleDef; readonly ids: readonly number[]; readonly index: number } | undefined {
+    for (const m of this.modules) {
+      if (m.pieceIds.includes(pieceId)) return { module: m, ids: m.pieceIds, index: 0 };
+      const i = (m.copies ?? []).findIndex((c) => c.includes(pieceId));
+      if (i >= 0) return { module: m, ids: m.copies![i]!, index: i + 1 };
+    }
+    return undefined;
+  }
+
+  /**
+   * Soulève une copie d'un exemplaire du module pour la poser ailleurs : les pièces du module restent en place, la copie suit le doigt
+   * comme un ensemble déplacé, et `dropGroup` la pose (un seul pas d'historique). Elle se pose tournée ou non.
+   */
+  liftModuleCopy(moduleId: number, ids: readonly number[]): { readonly ok: true; readonly piece: Piece } | { readonly ok: false; readonly reason: string } {
+    this.cancelLift();
+    const m = this.moduleMap.get(moduleId);
+    const pieces = ids.map((id) => this.model.get(id));
+    if (!m || pieces.length === 0 || pieces.some((p) => !p)) return { ok: false, reason: 'absente' };
+    const clones = (pieces as Piece[]).map((p) => this.model.createPiece({ typeId: p.typeId, color: p.color, x: p.x, y: p.y, z: p.z, orient: p.orient }));
+    this.liftedPieces = clones;
+    this.liftedCopyOf = moduleId;
+    this.emit();
+    return { ok: true, piece: clones[0]! };
   }
 
   /**
@@ -510,6 +542,23 @@ export class Game {
       this.journal.record('move_refused', before[0]!.id, reason);
       return { ok: false, reason };
     }
+    const copyOf = this.liftedCopyOf;
+    if (copyOf !== null) {
+      // Un exemplaire de plus du module : de nouvelles pièces, un seul pas d'historique, et le module en garde la trace.
+      const order = [...placed].sort((a, b) => a.placedAt - b.placedAt);
+      const ranks = new Map(order.map((p) => [p.id, this.model.reserveRank()]));
+      const after = placed.map((p) => ({ ...p, placedAt: ranks.get(p.id)! }));
+      this.liftedPieces = [];
+      this.liftedCopyOf = null;
+      for (const p of after) this.model.insert(p);
+      this.undoStack.push({ kind: 'placeGroup', pieces: after });
+      this.redoStack = [];
+      const m = this.moduleMap.get(copyOf);
+      if (m) this.moduleMap.set(m.id, { ...m, copies: [...(m.copies ?? []), after.map((p) => p.id)] });
+      this.journal.record('place', after[0]!.id);
+      this.emit();
+      return { ok: true, pieces: after, moved: true };
+    }
     const unchanged = placed.every((p, i) => p.x === before[i]!.x && p.y === before[i]!.y && p.z === before[i]!.z && p.orient === before[i]!.orient);
     if (unchanged) {
       this.cancelLift();
@@ -558,6 +607,12 @@ export class Game {
     const pieces = this.liftedPieces;
     if (pieces.length === 0) return;
     this.liftedPieces = [];
+    if (this.liftedCopyOf !== null) {
+      // Un exemplaire qu'on ne pose pas : ces copies n'ont jamais été dans la construction.
+      this.liftedCopyOf = null;
+      this.emit();
+      return;
+    }
     for (const p of pieces) this.model.insert(p);
     this.emit();
   }
@@ -567,6 +622,7 @@ export class Game {
     const cmd = this.undoStack.pop();
     if (!cmd) return false;
     if (cmd.kind === 'place') this.model.remove(cmd.piece.id);
+    else if (cmd.kind === 'placeGroup') for (const p of cmd.pieces) this.model.remove(p.id);
     else if (cmd.kind === 'remove') this.model.insert(cmd.piece);
     else if (cmd.kind === 'move') {
       this.model.remove(cmd.after.id);
@@ -590,6 +646,7 @@ export class Game {
     const cmd = this.redoStack.pop();
     if (!cmd) return false;
     if (cmd.kind === 'place') this.model.insert(cmd.piece);
+    else if (cmd.kind === 'placeGroup') for (const p of cmd.pieces) this.model.insert(p);
     else if (cmd.kind === 'remove') this.model.remove(cmd.piece.id);
     else if (cmd.kind === 'move') {
       this.model.remove(cmd.before.id);

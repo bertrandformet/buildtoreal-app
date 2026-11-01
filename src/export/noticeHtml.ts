@@ -230,13 +230,14 @@ ${basePlates ? `<h2>${esc(t('notice.basePlates'))}</h2>\n${platesList(plates)}` 
     const build = mod?.role === 'build';
     const place = mod?.role === 'place';
     const of = build ? t('notice.moduleOf', { name: mod!.name, part: mod!.part ?? 1, parts: mod!.parts ?? 1 }) : t('notice.stepOf', { total });
-    const heading = place ? t('notice.modulePlace', { name: mod!.name }) : build ? t('notice.moduleBuild', { name: mod!.name }) : t(step.plate !== undefined ? 'notice.plateStep' : 'notice.stepParts');
+    const many = (mod?.instances ?? 1) > 1;
+    const heading = place ? t(many ? 'notice.modulePlaceN' : 'notice.modulePlace', { name: mod!.name, k: mod?.instance ?? 1, n: mod?.instances ?? 1 }) : build ? t('notice.moduleBuild', { name: mod!.name }) : t(step.plate !== undefined ? 'notice.plateStep' : 'notice.stepParts');
     const alt = build ? t('notice.moduleAlt', { name: mod!.name, part: mod!.part ?? 1 }) : t('notice.stepAlt', { n: i + 1 });
     const list = step.plate !== undefined ? platesList([plates[step.plate]!]) : place ? `<p class="module-note">${esc(t('notice.modulePlaceNote', { name: mod!.name, n: step.pieces.length }))}</p>` : partsList(partsOf(step.pieces));
     const tip = step.plate !== undefined ? t('notice.plateTip') : build ? t('notice.moduleTip') : place ? t('notice.modulePlaceTip') : t('notice.tip');
     return `<section class="page step${step.plate !== undefined ? ' plate-step' : ''}${mod ? ' module-step' : ''}${build ? ' module-build' : ''}" id="etape-${i + 1}">
 <header class="head"><div class="badge" aria-hidden="true">${i + 1}</div><div class="titles"><div class="num">${esc(t('notice.step', { n: i + 1 }))}</div><div class="of">${esc(of)}</div></div><div class="brand" role="img" aria-label="${brand}"></div></header>
-${build ? `<p class="module-banner">${esc(t('notice.moduleBanner'))}</p>\n` : ''}<div class="body">
+${build ? `<p class="module-banner">${esc(many ? t('notice.moduleBannerN', { n: mod!.instances ?? 1 }) : t('notice.moduleBanner'))}</p>\n` : ''}<div class="body">
 <figure class="card">${image(images.steps[i]!, alt)}</figure>
 <aside class="side"><h3>${esc(heading)}</h3>
 ${list}

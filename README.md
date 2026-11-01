@@ -14,7 +14,7 @@ On assemble des briques sur une plaque, en 3D, sur téléphone, tablette ou ordi
 - **Des lumières** : des pièces lumineuses, des interrupteurs, et un outil **Relier** pour choisir ce que commande chaque interrupteur.
 - **Visiter** sa construction en mode Visite et en faire le tour, de jour ou de nuit.
 - **Plusieurs plaques** : la surface s'agrandit jusqu'à 128 × 128 tenons.
-- **Modules** : l'outil Module regroupe des pièces en sous-assemblage, ou en commence un vide à monter directement sur la plaque ; il se déplace d'un bloc, et la notice le fait **construire d'abord, à part**, dans une page encadrée « Construis d'abord ceci », avant de le poser d'un seul bloc.
+- **Modules** : l'outil Module regroupe des pièces en sous-assemblage, ou en commence un vide à monter directement sur la plaque ; il se déplace d'un bloc, un module se **copie** (quatre roues identiques, même tournées) ; la notice le fait **construire d'abord, à part**, dans une page encadrée « Construis d'abord ceci » (« n fois » s'il y a des copies), avant de le poser d'un seul bloc.
 - **La notice** est calculée depuis la construction finie, puis **vérifiée** : rejouée dans un modèle vide, elle doit redonner exactement la même construction. Elle se lit comme un livre à pages qui se tournent, s'imprime et se télécharge en un fichier autonome.
 - **Six modèles d'exemple**, de la voiture au château, au pont et à la grande maison, avec leurs portes, fenêtres et lumières déjà réglées.
 - **Hors ligne** : le jeu s'installe sur l'écran d'accueil et fonctionne sans connexion. Les créations s'enregistrent toutes seules (IndexedDB) et peuvent aussi l'être dans un fichier `.briques.json`.

@@ -169,6 +169,10 @@ export class App {
   private moduleDissolveBtn!: HTMLButtonElement;
   private moduleAnchor: number | null = null;
   private moduleBeginBtn!: HTMLButtonElement;
+  private moduleCopyBtn!: HTMLButtonElement;
+  /** Une copie de module est en cours de placement (outil Déplacer). */
+  private copyInProgress = false;
+  private copyModuleId: number | null = null;
   private moduleBar!: HTMLElement;
   private moduleBarText!: HTMLElement;
   private viewModeRows = new Map<InteractionMode, HTMLButtonElement>();
@@ -442,8 +446,8 @@ export class App {
     if (!this.canEdit() || id === null) return;
     this.liftConnected = groupConnected(this.game.model, id);
     // Une pièce de module se déplace avec tout son module, et avec ce qui est posé dessus.
-    const module = this.game.moduleOf(id);
-    const ids = module ? [...new Set(module.pieceIds.flatMap((m) => groupAbove(this.game.model, m)))] : groupAbove(this.game.model, id);
+    const instance = this.game.moduleInstance(id);
+    const ids = instance ? [...new Set(instance.ids.flatMap((m) => groupAbove(this.game.model, m)))] : groupAbove(this.game.model, id);
     this.liftIds(id, ids);
   }
 
@@ -456,9 +460,10 @@ export class App {
     this.liftIds(anchor.id, this.liftConnected);
   }
 
-  private liftIds(anchorId: number, ids: readonly number[]): void {
+  private liftIds(anchorId: number, ids: readonly number[], copyOf?: number): void {
     const ordered = [anchorId, ...ids.filter((i) => i !== anchorId)];
-    const outcome = ordered.length === 1 ? this.game.lift(anchorId) : this.game.liftGroup(ordered);
+    const outcome =
+      copyOf !== undefined ? { ...this.game.liftModuleCopy(copyOf, ordered), stranded: [] as never[] } : ordered.length === 1 ? this.game.lift(anchorId) : this.game.liftGroup(ordered);
     if (!outcome.ok) {
       this.sound.play('refused');
       this.scene.flash(outcome.stranded);
@@ -496,6 +501,7 @@ export class App {
   private dropNow(): void {
     if (!this.canEdit() || this.game.lifted === null) return;
     const wasGroup = this.groupLifted();
+    const copying = this.copyInProgress;
     let outcome: { ok: true; moved: boolean } | { ok: false; reason: PlacementReason };
     if (wasGroup) {
       const { x, y, z } = this.groupGhostQuery();
@@ -506,7 +512,9 @@ export class App {
     }
     if (outcome.ok) {
       this.restoreSelection();
-      this.showToast(outcome.moved ? t(wasGroup ? 'move.okGroup' : 'move.ok') : '', 'ok');
+      const copies = copying && this.copyModuleId !== null ? (this.game.modules.find((m) => m.id === this.copyModuleId)?.copies?.length ?? 0) + 1 : 0;
+      this.copyInProgress = false;
+      this.showToast(copying ? t('module.copied', { n: copies }) : outcome.moved ? t(wasGroup ? 'move.okGroup' : 'move.ok') : '', 'ok');
       if (outcome.moved) {
         this.counts.moves += 1;
         navigator.vibrate?.(8);
@@ -522,6 +530,7 @@ export class App {
 
   /** Remet la pièce soulevée à sa place, sans rien changer à l'historique. */
   private cancelMove(): void {
+    this.copyInProgress = false;
     if (this.game.lifted === null) return;
     this.game.cancelLift();
     this.restoreSelection();
@@ -1036,6 +1045,8 @@ export class App {
       this.moduleAnchor = null;
       this.setTool('place');
     });
+    this.moduleCopyBtn = h('button', { type: 'button', class: 'btn' }, t('module.copy')) as HTMLButtonElement;
+    this.moduleCopyBtn.addEventListener('click', () => this.copyModule());
     this.moduleDissolveBtn = h('button', { type: 'button', class: 'btn' }, t('module.dissolve')) as HTMLButtonElement;
     this.moduleDissolveBtn.addEventListener('click', () => {
       const id = this.moduleExisting ?? this.game.buildingModule?.id ?? null;
@@ -1047,7 +1058,7 @@ export class App {
       this.showToast(t('module.dissolved'), 'ok');
       this.syncUi();
     });
-    this.moduleControls = h('div', { class: 'remove-controls module-controls' }, this.moduleInfo, modeRow, this.moduleName, h('div', { class: 'bar-row' }, this.moduleDissolveBtn, this.moduleCreateBtn, this.moduleBeginBtn));
+    this.moduleControls = h('div', { class: 'remove-controls module-controls' }, this.moduleInfo, modeRow, this.moduleName, h('div', { class: 'bar-row' }, this.moduleDissolveBtn, this.moduleCreateBtn, this.moduleBeginBtn, this.moduleCopyBtn));
     const panel = h('aside', { class: 'panel' }, toolSeg, this.placeControls, this.removeControls, this.pickControls, this.moveControls, this.linkControls, this.moduleControls);
 
     root.append(topbar, stage, panel, this.viewPop);
@@ -1840,15 +1851,30 @@ export class App {
     const piece = id === null ? undefined : this.game.model.get(id);
     if (!piece) return;
     this.moduleAnchor = piece.id;
-    const existing = this.game.moduleOf(piece.id);
+    const instance = this.game.moduleInstance(piece.id);
+    const existing = instance?.module;
     this.moduleExisting = existing ? existing.id : null;
     // Les pièces d'un autre module ne sont pas reprises : un module posé dessus (ou dessous) reste à part.
     const taken = new Set(this.game.modules.flatMap((m) => m.pieceIds));
     const wanted = this.moduleWhole ? groupConnected(this.game.model, piece.id) : groupAbove(this.game.model, piece.id);
-    this.moduleSel = existing ? [...existing.pieceIds] : wanted.filter((pid) => !taken.has(pid));
+    this.moduleSel = instance ? [...instance.ids] : wanted.filter((pid) => !taken.has(pid));
     this.moduleName.value = existing ? existing.name : t('module.default', { n: this.game.modules.length + 1 });
     this.sound.play('step');
     this.syncUi();
+  }
+
+  /** Soulève une copie de l'exemplaire touché du module : on la place comme un ensemble déplacé, puis « Poser ». */
+  private copyModule(): void {
+    if (!this.canEdit() || this.moduleExisting === null || this.moduleSel.length === 0) return;
+    const moduleId = this.moduleExisting;
+    const anchor = this.moduleAnchor ?? this.moduleSel[0]!;
+    const ids = [anchor, ...this.moduleSel.filter((id) => id !== anchor)];
+    this.setTool('move');
+    this.liftConnected = [];
+    this.liftIds(anchor, ids, moduleId);
+    this.copyInProgress = this.game.lifted !== null;
+    this.copyModuleId = moduleId;
+    if (this.copyInProgress) this.showToast(t('module.copying'), 'ok');
   }
 
   /** Termine le module en cours ; sinon dit pourquoi, et il reste en cours. */
@@ -1911,6 +1937,7 @@ export class App {
     show(this.moduleName, !building && (sel.length === 0 || !existing));
     show(this.moduleCreateBtn, !!building || sel.length > 0);
     show(this.moduleDissolveBtn, !!building || !!existing);
+    show(this.moduleCopyBtn, !building && !!existing);
     for (const b of this.moduleModeBtns.values()) show(b, !building);
     this.moduleCreateBtn.disabled = false;
     if (building) {
@@ -1922,7 +1949,7 @@ export class App {
     if (sel.length === 0) {
       this.moduleInfo.textContent = t('module.hint');
     } else if (existing) {
-      this.moduleInfo.textContent = t('module.existing', { name: existing.name, n: existing.pieceIds.length });
+      this.moduleInfo.textContent = existing.copies ? t('module.existingN', { name: existing.name, n: existing.pieceIds.length, copies: existing.copies.length + 1 }) : t('module.existing', { name: existing.name, n: existing.pieceIds.length });
     } else {
       const reason = sel.length < 2 ? 'trop_peu' : this.game.modules.some((m) => m.pieceIds.some((id) => sel.includes(id))) ? 'deja_module' : moduleProblem(this.game.model, sel);
       this.moduleInfo.textContent = `${t('module.chosen', { n: sel.length })} ${reason ? t(this.moduleProblemKey(reason)) : t('module.ok')}`;

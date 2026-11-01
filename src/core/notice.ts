@@ -9,7 +9,7 @@
 import { BASE_COLORS, getType, isKnownColor, normalizeOrient, requireType, type Orient, type PieceKind } from './catalogue';
 import { MAX_EXTENT, Model, parsePlates, pieceExtent, type BasePlate, type Piece } from './model';
 import { assemblyOrder, piecesBelow } from './assembly';
-import { localizeModule, MAX_MODULE_NAME, type LocalModule, type ModuleDef } from './modules';
+import { localizeModule, MAX_MODULE_NAME, sameShapeTurned, type LocalModule, type ModuleDef } from './modules';
 import { evaluatePlacement } from './rules';
 
 export const NOTICE_SCHEMA = 1;
@@ -38,6 +38,9 @@ export interface NoticeModuleRef {
   readonly part?: number;
   readonly parts?: number;
   readonly plate?: { readonly w: number; readonly l: number };
+  /** Nombre d'exemplaires du module (« construis-le 4 fois ») ; « place » : le rang de cet exemplaire. Absents : un seul exemplaire. */
+  readonly instances?: number;
+  readonly instance?: number;
 }
 
 /** Une étape pose des pièces, ou bien ajoute une plaque (`plate` : son rang dans `Notice.plates`, à partir de 1 ; pas de pièces). */
@@ -83,39 +86,63 @@ function toNoticePiece(p: Piece): NoticePiece {
 
 export { assemblyOrder } from './assembly';
 
-type OrderItem = { readonly piece: Piece } | { readonly module: ModuleDef; readonly local: LocalModule };
+interface ModuleInstance {
+  readonly ids: readonly number[];
+  readonly local: LocalModule;
+}
+interface UsableModule {
+  readonly def: ModuleDef;
+  readonly instances: readonly ModuleInstance[];
+}
 
-/** Les modules utilisables : au moins deux pièces existantes, aucune pièce partagée, et qui se construisent seuls. */
-function usableModules(model: Model, modules: readonly ModuleDef[]): Array<{ def: ModuleDef; local: LocalModule }> {
+type OrderItem =
+  | { readonly piece: Piece }
+  | { readonly module: ModuleDef; readonly built: LocalModule; readonly local: LocalModule; readonly instance: number; readonly instances: number };
+
+/**
+ * Les modules utilisables : au moins deux pièces existantes, aucune pièce partagée, et qui se construisent seuls. Chaque exemplaire doit être
+ * complet et de la même forme que le premier (à la rotation près) ; un exemplaire qui diffère est ignoré, ses pièces sont posées comme les autres.
+ */
+function usableModules(model: Model, modules: readonly ModuleDef[]): UsableModule[] {
   const taken = new Set<number>();
-  const out: Array<{ def: ModuleDef; local: LocalModule }> = [];
+  const out: UsableModule[] = [];
   for (const m of modules) {
     const ids = m.pieceIds.filter((id) => model.get(id));
     if (ids.some((id) => taken.has(id))) continue;
     const local = localizeModule(model, ids);
     if ('problem' in local) continue;
     for (const id of ids) taken.add(id);
-    out.push({ def: { ...m, pieceIds: ids }, local });
+    const instances: ModuleInstance[] = [{ ids, local }];
+    for (const copy of m.copies ?? []) {
+      if (copy.length !== ids.length || copy.some((id) => !model.get(id) || taken.has(id))) continue;
+      const other = localizeModule(model, copy);
+      if ('problem' in other || !sameShapeTurned(local.pieces, other.pieces)) continue;
+      for (const id of copy) taken.add(id);
+      instances.push({ ids: copy, local: other });
+    }
+    out.push({ def: { ...m, pieceIds: ids }, instances });
   }
   return out;
 }
 
 /**
- * Ordre de montage avec modules : chaque module est un seul bloc, posé quand toutes les pièces dont il dépend le sont, et avant celles qui
- * reposent sur lui. Renvoie null si un module rend l'ordre impossible (une pièce serait à la fois sous une pièce du module et au-dessus d'une autre).
+ * Ordre de montage avec modules : chaque exemplaire de module est un seul bloc, posé quand toutes les pièces dont il dépend le sont, et avant celles
+ * qui reposent sur lui. Renvoie null si un module rend l'ordre impossible (une pièce serait à la fois sous une pièce du module et au-dessus d'une autre).
  */
-function orderItems(model: Model, modules: ReadonlyArray<{ def: ModuleDef; local: LocalModule }>): OrderItem[] | null {
+function orderItems(model: Model, modules: readonly UsableModule[]): OrderItem[] | null {
   const pieces = model.all();
   const nodeOf = new Map<number, string>();
   const nodes = new Map<string, { item: OrderItem; rank: number; tie: number }>();
-  for (const { def, local } of modules) {
-    const key = `m${def.id}`;
-    let rank = Infinity;
-    for (const id of def.pieceIds) {
-      nodeOf.set(id, key);
-      rank = Math.min(rank, model.get(id)!.placedAt);
-    }
-    nodes.set(key, { item: { module: def, local }, rank, tie: Math.min(...def.pieceIds) });
+  for (const { def, instances } of modules) {
+    instances.forEach((inst, j) => {
+      const key = `m${def.id}_${j}`;
+      let rank = Infinity;
+      for (const id of inst.ids) {
+        nodeOf.set(id, key);
+        rank = Math.min(rank, model.get(id)!.placedAt);
+      }
+      nodes.set(key, { item: { module: def, built: instances[0]!.local, local: inst.local, instance: j, instances: instances.length }, rank, tie: Math.min(...inst.ids) });
+    });
   }
   for (const p of pieces) {
     if (nodeOf.has(p.id)) continue;
@@ -160,6 +187,7 @@ function orderItems(model: Model, modules: ReadonlyArray<{ def: ModuleDef; local
  * (ses pièces sont alors posées comme les autres).
  */
 export function buildNotice(model: Model, baseColor: string, maxPerStep: number = DEFAULT_MAX_PER_STEP, modules: readonly ModuleDef[] = []): Notice {
+  const buildSteps = new Set<number>();
   let items = modules.length > 0 ? orderItems(model, usableModules(model, modules)) : null;
   items ??= assemblyOrder(model).map((piece) => ({ piece }));
   const steps: NoticeStep[] = [];
@@ -178,23 +206,29 @@ export function buildNotice(model: Model, baseColor: string, maxPerStep: number 
       continue;
     }
     flush();
-    const { module: def, local } = item;
-    // Parties du module : mêmes règles de découpage que la construction, dans son repère propre. Le nombre de parties est connu à la fin.
-    const groups: NoticePiece[][] = [];
-    let part: NoticePiece[] = [];
-    for (const p of local.pieces) {
-      const first = part[0];
-      const spread = first ? Math.max(Math.abs(p.x - first.x), Math.abs(p.z - first.z)) : 0;
-      if (part.length >= maxPerStep || spread > MAX_STEP_SPREAD) {
-        groups.push(part);
-        part = [];
-      }
-      part.push(p);
-    }
-    if (part.length > 0) groups.push(part);
+    const { module: def, built, local, instance, instances } = item;
     const name = def.name.slice(0, MAX_MODULE_NAME);
-    groups.forEach((pieces, k) => steps.push({ pieces, module: { id: def.id, name, role: 'build', part: k + 1, parts: groups.length, plate: local.plate } }));
-    steps.push({ pieces: local.placed, module: { id: def.id, name, role: 'place' } });
+    // Le module se construit une fois, avant son premier exemplaire posé ; chaque exemplaire a ensuite son étape de pose.
+    if (!buildSteps.has(def.id)) {
+      buildSteps.add(def.id);
+      // Parties du module : mêmes règles de découpage que la construction, dans son repère propre.
+      const groups: NoticePiece[][] = [];
+      let part: NoticePiece[] = [];
+      for (const p of built.pieces) {
+        const first = part[0];
+        const spread = first ? Math.max(Math.abs(p.x - first.x), Math.abs(p.z - first.z)) : 0;
+        if (part.length >= maxPerStep || spread > MAX_STEP_SPREAD) {
+          groups.push(part);
+          part = [];
+        }
+        part.push(p);
+      }
+      if (part.length > 0) groups.push(part);
+      groups.forEach((pieces, k) =>
+        steps.push({ pieces, module: { id: def.id, name, role: 'build', part: k + 1, parts: groups.length, plate: built.plate, ...(instances > 1 ? { instances } : {}) } }),
+      );
+    }
+    steps.push({ pieces: local.placed, module: { id: def.id, name, role: 'place', ...(instances > 1 ? { instance: instance + 1, instances } : {}) } });
   }
   flush();
   const plates = model.plates.map((p) => ({ ...p }));
@@ -279,22 +313,12 @@ export function replayNotice(notice: Notice): ReplayResult {
   return { ok: errors.length === 0, errors, model };
 }
 
-/** Le module construit à part et les pièces posées ont-ils la même forme, au décalage près ? */
+/** Le module construit à part et les pièces posées ont-ils la même forme, au décalage et à la rotation près ? */
 function sameShape(built: Model, placed: readonly NoticePiece[]): boolean {
-  const mine = built.all();
-  if (mine.length !== placed.length || placed.length === 0) return false;
-  const key = (p: { typeId: string; color: string; x: number; y: number; z: number; orient: number }, dx: number, dy: number, dz: number) =>
-    [p.y - dy, p.z - dz, p.x - dx, p.typeId, p.orient, p.color].join('|');
-  const origin = (list: ReadonlyArray<{ x: number; y: number; z: number }>) => ({
-    x: Math.min(...list.map((p) => p.x)),
-    y: Math.min(...list.map((p) => p.y)),
-    z: Math.min(...list.map((p) => p.z)),
-  });
-  const a = origin(mine);
-  const b = origin(placed);
-  const left = mine.map((p) => key(p, a.x, a.y, a.z)).sort();
-  const right = placed.map((p) => key(p, b.x, b.y, b.z)).sort();
-  return left.every((k, i) => k === right[i]);
+  return sameShapeTurned(
+    built.all().map((p) => ({ typeId: p.typeId, color: p.color, x: p.x, y: p.y, z: p.z, orient: p.orient })),
+    placed,
+  );
 }
 
 /** Clé comparable d'une construction : mêmes pièces, mêmes positions, orientations et couleurs (identifiants ignorés). */
@@ -379,9 +403,11 @@ export function parseNotice(raw: unknown): ParseResult {
       if (m['role'] === 'build') {
         const plate = m['plate'] as Record<string, unknown> | undefined;
         if (!INT(m['part'], 1, 60) || !INT(m['parts'], 1, 60) || m['part'] > m['parts'] || !plate || !INT(plate['w'], 3, MAX_EXTENT) || !INT(plate['l'], 3, MAX_EXTENT)) return bad('module invalide');
-        module = { id: m['id'], name: m['name'], role: 'build', part: m['part'], parts: m['parts'], plate: { w: plate['w'], l: plate['l'] } };
+        if (m['instances'] !== undefined && !INT(m['instances'], 2, 50)) return bad('module invalide');
+        module = { id: m['id'], name: m['name'], role: 'build', part: m['part'], parts: m['parts'], plate: { w: plate['w'], l: plate['l'] }, ...(m['instances'] !== undefined ? { instances: m['instances'] as number } : {}) };
       } else if (m['role'] === 'place') {
-        module = { id: m['id'], name: m['name'], role: 'place' };
+        if (m['instances'] !== undefined && (!INT(m['instances'], 2, 50) || !INT(m['instance'], 1, m['instances'] as number))) return bad('module invalide');
+        module = { id: m['id'], name: m['name'], role: 'place', ...(m['instances'] !== undefined ? { instance: m['instance'] as number, instances: m['instances'] as number } : {}) };
       } else {
         return bad('module invalide');
       }
