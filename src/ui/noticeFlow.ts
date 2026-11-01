@@ -33,13 +33,18 @@ async function shrink(dataUrl: string, width: number): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.72);
 }
 
+const LARGE_MODEL = 350;
+const LARGE_PER_STEP = 8;
+
 export async function createNotice(game: Game, onProgress: (done: number, total: number) => void): Promise<NoticeBundle> {
-  const notice = buildNotice(game.model, game.baseColor, undefined, game.modules);
+  // Un gros modèle donne beaucoup d’étapes : images plus petites et étapes plus chargées pour garder un fichier raisonnable.
+  const large = game.model.count > LARGE_MODEL;
+  const notice = buildNotice(game.model, game.baseColor, large ? LARGE_PER_STEP : undefined, game.modules);
   const replay = replayNotice(notice);
   const verified = replay.ok && sameConstruction(replay.model, game.model);
 
   const plates = noticePlates(notice);
-  const renderer = new NoticeRenderer();
+  const renderer = large ? new NoticeRenderer(800, 570, 0.78) : new NoticeRenderer();
   try {
     const previous: Array<(typeof notice.steps)[number]['pieces'][number]> = [];
     const steps: string[] = [];

@@ -27,7 +27,7 @@ Il faut Node.js (une version récente).
 ```bash
 npm install
 npm run dev        # serveur de développement, accessible sur le réseau local (pour essayer sur un téléphone)
-npm test           # près de 400 tests
+npm test           # plus de 400 tests
 npm run build      # site statique dans dist/
 ```
 

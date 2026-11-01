@@ -85,7 +85,16 @@ function house(): PieceSpec[] {
     [0, 4, 'jaune'], [0, 9, 'rouge'], [0, 12, 'violet'], [15, 4, 'orange'], [15, 9, 'rose'], [15, 12, 'jaune'], [7, 1, 'rouge'], [10, 1, 'blanc'],
   ];
   for (const [x, z, color] of flowers) out.push(piece('plate-1x1', 'vert', x, 0, z), piece('roundplate-1x1', color, x, 1, z));
+  // Quatre lampes dans les pièces (une par coin de la maison) et un interrupteur sur son socle, à droite, près de la cloison.
+  for (const [x, z] of [[4, 5], [11, 5], [4, 10], [11, 10]] as const) out.push(piece('column-3', 'jaune-lumi', x, 0, z));
+  out.push(piece('brick-1x2', 'gris', 13, 0, 8, 0), piece(SWITCH_ID, 'blanc', 13, 3, 8, 0));
   return out;
+}
+
+/** Circuit de la maison : l'interrupteur de droite commande les quatre lampes des pièces. */
+function houseCircuit(pieces: readonly PieceSpec[]): Array<readonly [number, number[]]> {
+  const sw = indicesOf(pieces, (p) => p.typeId === SWITCH_ID)[0]!;
+  return [[sw, indicesOf(pieces, (p) => p.typeId === 'column-3' && p.color === 'jaune-lumi')]];
 }
 
 /**
@@ -324,6 +333,19 @@ function castle(): PieceSpec[] {
     [13, 36, 'rose'], [30, 37, 'rouge'], [34, 36, 'violet'], [15, 34, 'orange'], [28, 35, 'rose'], [5, 28, 'blanc'], [38, 28, 'jaune'],
   ];
   for (const [x, z, color] of flowers) out.push(piece('plate-1x1', 'vert', x, 0, z), piece('roundplate-1x1', color, x, 1, z));
+  // Étage : un garde-corps fin autour du trou de l'escalier (posts d'une brique et lisses de plaque), puis quelques meubles : une table et ses
+  // six chaises, deux lits et leurs oreillers, une bibliothèque et ses livres.
+  for (const z of [13, 18]) {
+    for (const x of [13, 17, 21]) out.push(piece('brick-1x1', 'blanc', x, 19, z));
+    out.push(piece('plate-1x8', 'gris', 13, 22, z, 1), piece('plate-1x2', 'gris', 21, 22, z, 1));
+  }
+  for (const z of [14, 17]) out.push(piece('brick-1x1', 'blanc', 23, 19, z));
+  out.push(piece('plate-1x4', 'gris', 23, 22, 14, 0));
+  out.push(piece('brick-2x6', 'marron', 16, 19, 21, 1));
+  for (const x of [16, 18, 20]) for (const z of [20, 23]) out.push(piece('brick-1x1', 'rouge', x, 19, z));
+  for (const z of [18, 23]) out.push(piece('brick-2x4', 'rose', 29, 19, z, 0), piece('plate-2x2', 'blanc', 29, 22, z));
+  out.push(piece('brick-1x4', 'marron', 26, 19, 13, 1));
+  for (const [x, color] of [[26, 'rouge'], [27, 'bleu'], [28, 'jaune'], [29, 'vert']] as const) out.push(piece('brick-1x1', color, x, 22, 13));
   // Quatre arbres aux coins de la pelouse : deux à houppier rond, deux sapins.
   roundTree(out, 3, 4, 'vert');
   firTree(out, 44, 4);
@@ -332,10 +354,22 @@ function castle(): PieceSpec[] {
   return out;
 }
 
+/** Les pièces d'un arbre (tronc, feuillage ; pas les fleurs ni les torches) dans un carré de 5 tenons autour de son tronc. */
+const TREE_TYPES = new Set(['column-4', 'column-2', 'plate-6x6', 'brick-2x4', 'brick-2x2', 'roundplate-2x2', 'corner-2x2']);
+function treeIndices(pieces: readonly PieceSpec[], cx: number, cz: number): number[] {
+  return indicesOf(pieces, (p) => TREE_TYPES.has(p.typeId) && p.x >= cx - 2 && p.x <= cx + 2 && p.z >= cz - 2 && p.z <= cz + 2 && p.y <= 30 && !(p.typeId === 'brick-2x4' && p.color === 'gris'));
+}
+
+/** Un module de plusieurs arbres identiques : le premier arbre, puis ses copies. */
+function treeModule(pieces: readonly PieceSpec[], name: string, trunks: ReadonlyArray<readonly [number, number]>): NonNullable<ExampleModel['modules']>[number] {
+  const [first, ...others] = trunks.map(([x, z]) => treeIndices(pieces, x, z));
+  return { name, pieces: first!, copies: others };
+}
+
 /** Les quatre tours du château sont un même module (les deux de l'est sont celles de l'ouest tournées d'un demi-tour) : construit une fois, posé quatre fois. */
 function castleModules(pieces: readonly PieceSpec[]): NonNullable<ExampleModel['modules']> {
   const tower = (x0: number, z0: number) => indicesOf(pieces, (p) => p.x >= x0 && p.x < x0 + 4 && p.z >= z0 && p.z < z0 + 4);
-  return [{ name: 'Tour', pieces: tower(6, 12), copies: [tower(6, 24), tower(34, 12), tower(34, 24)] }];
+  return [{ name: 'Tour', pieces: tower(6, 12), copies: [tower(6, 24), tower(34, 12), tower(34, 24)] }, treeModule(pieces, 'Sapin', [[44, 4], [3, 40]])];
 }
 
 /** Circuits du château : lampes du rez-de-chaussée, lampes de l'étage, torches de l'allée (chacun avec son interrupteur). */
@@ -471,6 +505,16 @@ function manor(): { pieces: PieceSpec[]; cars: CarRange[] } {
   return { pieces: out, cars };
 }
 
+/** Modules de la grande maison : chaque voiture à part, les deux sapins identiques et les deux arbres ronds verts identiques. */
+function manorModules(pieces: readonly PieceSpec[], cars: readonly CarRange[]): NonNullable<ExampleModel['modules']> {
+  const names = ['Voiture rouge', 'Voiture bleue', 'Voiture turquoise'];
+  return [
+    ...cars.map(([start, end], i) => ({ name: names[i] ?? `Voiture ${i + 1}`, pieces: Array.from({ length: end - start }, (_, k) => start + k) })),
+    treeModule(pieces, 'Sapin', [[14, 44], [31, 44]]),
+    treeModule(pieces, 'Arbre', [[4, 10], [6, 23]]),
+  ];
+}
+
 /** Circuits de la grande maison : lampes du rez-de-chaussée, lampes du grenier, torches de l'allée, lampes du garage, puis chaque voiture. */
 function manorCircuits(pieces: readonly PieceSpec[], cars: readonly CarRange[]): Array<readonly [number, number[]]> {
   const at = (test: (p: PieceSpec) => boolean) => indicesOf(pieces, test);
@@ -579,13 +623,15 @@ function bridge(): { pieces: PieceSpec[]; cars: CarRange[] } {
  * Du pont, deux modules : les quatre piles (deux jambes de six briques chacune) et les deux arches des tours (deux jambes de huit briques et un linteau),
  * chacun construit une fois puis posé plusieurs fois.
  */
-function bridgeModules(pieces: readonly PieceSpec[]): NonNullable<ExampleModel['modules']> {
+function bridgeModules(pieces: readonly PieceSpec[], cars: readonly CarRange[]): NonNullable<ExampleModel['modules']> {
   const pier = (x: number) => indicesOf(pieces, (p) => p.typeId === 'brick-2x4' && p.color === 'gris' && p.x === x && p.y < 18 && (p.z === 11 || p.z === 19));
   const arch = (x: number) =>
     indicesOf(pieces, (p) => (p.typeId === 'brick-2x4' && p.color === 'blanc' && p.x === x && p.y >= 19 && p.y < 43 && (p.z === 11 || p.z === 19)) || (p.y === 43 && p.color === 'bleu' && p.x >= x && p.x < x + 4));
   return [
     { name: 'Pile', pieces: pier(34), copies: [pier(42), pier(50), pier(58)] },
     { name: 'Arche', pieces: arch(40), copies: [arch(52)] },
+    treeModule(pieces, 'Sapin', [[22, 26], [90, 5]]),
+    ...cars.map(([start, end], i) => ({ name: cars.length > 1 ? `Voiture ${i + 1}` : 'Voiture', pieces: Array.from({ length: end - start }, (_, k) => start + k) })),
   ];
 }
 
@@ -621,7 +667,7 @@ function indicesOf(pieces: readonly PieceSpec[], test: (p: PieceSpec) => boolean
 }
 
 const MODELS: ExampleModel[] = [
-  { id: 'house', base: { size: 16, color: 'vert' }, pieces: house(), opened: indicesOf(house(), (p) => p.typeId.startsWith('door-') || (p.typeId.startsWith('casement-') && p.z === 12 && p.x === 10) || (p.typeId.startsWith('casement-') && p.x === 1)) },
+  { id: 'house', base: { size: 16, color: 'vert' }, pieces: house(), links: houseCircuit(house()), opened: indicesOf(house(), (p) => p.typeId.startsWith('door-') || (p.typeId.startsWith('casement-') && p.z === 12 && p.x === 10) || (p.typeId.startsWith('casement-') && p.x === 1)) },
   {
     id: 'castle',
     base: { size: 48, color: 'vert' },
@@ -648,6 +694,7 @@ const MODELS: ExampleModel[] = [
       { from: 5, side: 'x+', size: 16, color: 'gris' },
     ],
     pieces: manor().pieces,
+    modules: manorModules(manor().pieces, manor().cars),
     opened: indicesOf(
       manor().pieces,
       (p) =>
@@ -667,7 +714,7 @@ const MODELS: ExampleModel[] = [
       { from: 1, side: 'x+', size: 32, color: 'vert' },
     ],
     pieces: bridge().pieces,
-    modules: bridgeModules(bridge().pieces),
+    modules: bridgeModules(bridge().pieces, bridge().cars),
     links: bridgeCircuits(bridge().pieces, bridge().cars),
   },
   { id: 'car', base: { size: 16, color: 'gris' }, pieces: car(), links: carCircuit(car()), opened: indicesOf(car(), (p) => p.typeId.startsWith('tailgate-') || (p.typeId.startsWith('cardoor-') && p.x === 7 && p.z === 4)) },

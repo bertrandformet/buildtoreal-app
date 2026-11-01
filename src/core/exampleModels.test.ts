@@ -72,6 +72,18 @@ describe('modèles d’exemple', () => {
     expect(house.pieces.filter((p) => p.typeId === 'brick-2x2')).toHaveLength(4);
   });
 
+  it('la maison a un interrupteur qui éteint ses quatre lampes', () => {
+    const game = buildExampleGame(EXAMPLES.find((m) => m.id === 'house')!);
+    const sw = game.model.all().filter((p) => p.typeId === 'switch-1x2');
+    expect(sw).toHaveLength(1);
+    const glow = game.model.all().filter((p) => p.color.endsWith('-lumi'));
+    expect(glow).toHaveLength(4);
+    const lit = () => litPieces(game.model, game.switchesOff, game.switchLinks).size;
+    expect(lit()).toBe(4);
+    game.toggleSwitch(sw[0]!.id);
+    expect(lit()).toBe(0);
+  });
+
   it('le château a trois circuits indépendants : lampes du rez-de-chaussée, lampes de l’étage, torches de l’allée', () => {
     const game = buildExampleGame(EXAMPLES.find((m) => m.id === 'castle')!);
     const switches = game.model.all().filter((p) => p.typeId === 'switch-1x2');
@@ -244,9 +256,9 @@ describe('modèles d’exemple', () => {
   it('le château a un module « Tour » construit une fois et posé quatre fois ; le pont, un module « Pile » (quatre fois) et un module « Arche » (deux fois)', () => {
     const modules = (id: string) => buildExampleGame(EXAMPLES.find((m) => m.id === id)!).modules;
     const castle = modules('castle');
-    expect(castle.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Tour:36+3']);
+    expect(castle.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Tour:36+3', 'Sapin:12+1']);
     const bridge = modules('bridge');
-    expect(bridge.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Pile:12+3', 'Arche:20+1']);
+    expect(bridge.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Pile:12+3', 'Arche:20+1', 'Sapin:12+1', 'Voiture:'+bridge[3]!.pieceIds.length+'+undefined']);
   });
 
   it.each(['castle', 'bridge'] as const)('« %s » : la notice avec modules se rejoue, redonne la construction, et est plus courte', (id) => {

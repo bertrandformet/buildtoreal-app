@@ -32,7 +32,10 @@ export class NoticeRenderer {
   private readonly faded = new Map<string, THREE.MeshStandardMaterial>();
   private content = new THREE.Group();
 
-  constructor(width = 960, height = 680) {
+  private readonly quality: number;
+
+  constructor(width = 960, height = 680, quality = 0.88) {
+    this.quality = quality;
     const canvas = document.createElement('canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(1);
@@ -220,7 +223,7 @@ export class NoticeRenderer {
     this.renderer.setClearColor(0xffffff, 1);
     this.scene.background = new THREE.Color(0xffffff);
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/jpeg', 0.88);
+    return this.renderer.domElement.toDataURL('image/jpeg', this.quality);
   }
 
   /** Fin trait noir autour d'une pièce nouvelle (coque inversée, légèrement agrandie) : la repère même en noir et blanc. */
