@@ -240,4 +240,28 @@ describe('modèles d’exemple', () => {
     const pier = all.filter((p) => p.typeId === 'brick-2x4' && p.color === 'gris' && p.x === 42 && p.z === 11);
     expect(pier.map((p) => p.y)).toEqual([0, 3, 6, 9, 12, 15]);
   });
+
+  it('le château a un module « Tour » construit une fois et posé quatre fois ; le pont, un module « Pile » (quatre fois) et un module « Arche » (deux fois)', () => {
+    const modules = (id: string) => buildExampleGame(EXAMPLES.find((m) => m.id === id)!).modules;
+    const castle = modules('castle');
+    expect(castle.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Tour:36+3']);
+    const bridge = modules('bridge');
+    expect(bridge.map((m) => `${m.name}:${m.pieceIds.length}+${m.copies?.length}`)).toEqual(['Pile:12+3', 'Arche:20+1']);
+  });
+
+  it.each(['castle', 'bridge'] as const)('« %s » : la notice avec modules se rejoue, redonne la construction, et est plus courte', (id) => {
+    const game = buildExampleGame(EXAMPLES.find((m) => m.id === id)!);
+    const plain = buildNotice(game.model, game.baseColor);
+    const withModules = buildNotice(game.model, game.baseColor, 6, game.modules);
+    const replay = replayNotice(withModules);
+    expect(replay.errors).toEqual([]);
+    expect(sameConstruction(replay.model, game.model)).toBe(true);
+    expect(noticePieceCount(withModules)).toBe(game.model.count);
+    expect(withModules.steps.some((s) => s.module?.instances && s.module.instances > 1)).toBe(true);
+    // Les exemplaires sont construits une fois : moins de pièces à poser à la main, donc une notice plus courte.
+    const built = withModules.steps.filter((s) => s.module?.role === 'build').reduce((n, s) => n + s.pieces.length, 0);
+    const placedAsBlock = withModules.steps.filter((s) => s.module?.role === 'place').reduce((n, s) => n + s.pieces.length, 0);
+    expect(built).toBeLessThan(placedAsBlock);
+    expect(withModules.steps.length).toBeLessThan(plain.steps.length + placedAsBlock);
+  });
 });

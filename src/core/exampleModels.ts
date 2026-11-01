@@ -16,6 +16,8 @@ export interface ExampleModel {
   readonly pieces: readonly PieceSpec[];
   /** Rangs (dans `pieces`, à partir de 0) des portes, fenêtres, portières et hayons ouverts au départ. */
   readonly opened?: readonly number[];
+  /** Modules : pour chacun, le rang (dans `pieces`) des pièces de son premier exemplaire, puis de chaque copie (de même forme, à la rotation près). */
+  readonly modules?: ReadonlyArray<{ readonly name: string; readonly pieces: readonly number[]; readonly copies?: ReadonlyArray<readonly number[]> }>;
   /** Circuits de lumière : [rang de l'interrupteur, rangs des pièces lumineuses qu'il commande] (voir `Game.toggleLink`). */
   readonly links?: ReadonlyArray<readonly [number, readonly number[]]>;
 }
@@ -300,7 +302,8 @@ function castle(): PieceSpec[] {
       }
       out.push(piece('corner-2x2', 'marine', x0, 45, z0, 2), piece('corner-2x2', 'marine', x0 + 2, 45, z0, 3));
       out.push(piece('corner-2x2', 'marine', x0, 45, z0 + 2, 1), piece('corner-2x2', 'marine', x0 + 2, 45, z0 + 2, 0));
-      out.push(piece('brick-2x2', 'jaune', x0 + 1, 48, z0 + 1), piece('column-1', 'orange-lumi', x0 + 1, 51, z0 + 1));
+      // La balise est dans le coin opposé à l'est : une tour de l'est est celle de l'ouest tournée d'un demi-tour (module « Tour »).
+      out.push(piece('brick-2x2', 'jaune', x0 + 1, 48, z0 + 1), piece('column-1', 'orange-lumi', x0 + (east ? 2 : 1), 51, z0 + (east ? 2 : 1)));
     }
   }
   // Portique : quatre colonnes de six briques, deux poutres 2×8 et un auvent de pentes douces au-dessus de la double porte.
@@ -327,6 +330,12 @@ function castle(): PieceSpec[] {
   firTree(out, 3, 40);
   roundTree(out, 44, 40, 'orange');
   return out;
+}
+
+/** Les quatre tours du château sont un même module (les deux de l'est sont celles de l'ouest tournées d'un demi-tour) : construit une fois, posé quatre fois. */
+function castleModules(pieces: readonly PieceSpec[]): NonNullable<ExampleModel['modules']> {
+  const tower = (x0: number, z0: number) => indicesOf(pieces, (p) => p.x >= x0 && p.x < x0 + 4 && p.z >= z0 && p.z < z0 + 4);
+  return [{ name: 'Tour', pieces: tower(6, 12), copies: [tower(6, 24), tower(34, 12), tower(34, 24)] }];
 }
 
 /** Circuits du château : lampes du rez-de-chaussée, lampes de l'étage, torches de l'allée (chacun avec son interrupteur). */
@@ -567,6 +576,20 @@ function bridge(): { pieces: PieceSpec[]; cars: CarRange[] } {
 }
 
 /**
+ * Du pont, deux modules : les quatre piles (deux jambes de six briques chacune) et les deux arches des tours (deux jambes de huit briques et un linteau),
+ * chacun construit une fois puis posé plusieurs fois.
+ */
+function bridgeModules(pieces: readonly PieceSpec[]): NonNullable<ExampleModel['modules']> {
+  const pier = (x: number) => indicesOf(pieces, (p) => p.typeId === 'brick-2x4' && p.color === 'gris' && p.x === x && p.y < 18 && (p.z === 11 || p.z === 19));
+  const arch = (x: number) =>
+    indicesOf(pieces, (p) => (p.typeId === 'brick-2x4' && p.color === 'blanc' && p.x === x && p.y >= 19 && p.y < 43 && (p.z === 11 || p.z === 19)) || (p.y === 43 && p.color === 'bleu' && p.x >= x && p.x < x + 4));
+  return [
+    { name: 'Pile', pieces: pier(34), copies: [pier(42), pier(50), pier(58)] },
+    { name: 'Arche', pieces: arch(40), copies: [arch(52)] },
+  ];
+}
+
+/**
  * Circuits du pont : les lampadaires de l'ouest (x < 48), ceux de l'est, les balises des tours (chacun avec son interrupteur sur la berge),
  * et la voiture (son interrupteur commande ses phares et ses feux).
  */
@@ -603,6 +626,7 @@ const MODELS: ExampleModel[] = [
     id: 'castle',
     base: { size: 48, color: 'vert' },
     pieces: castle(),
+    modules: castleModules(castle()),
     opened: indicesOf(
       castle(),
       (p) =>
@@ -643,6 +667,7 @@ const MODELS: ExampleModel[] = [
       { from: 1, side: 'x+', size: 32, color: 'vert' },
     ],
     pieces: bridge().pieces,
+    modules: bridgeModules(bridge().pieces),
     links: bridgeCircuits(bridge().pieces, bridge().cars),
   },
   { id: 'car', base: { size: 16, color: 'gris' }, pieces: car(), links: carCircuit(car()), opened: indicesOf(car(), (p) => p.typeId.startsWith('tailgate-') || (p.typeId.startsWith('cardoor-') && p.x === 7 && p.z === 4)) },
@@ -666,6 +691,15 @@ export function buildExampleGame(model: ExampleModel, now: () => number = () => 
   // Les pièces reçoivent leurs identifiants dans l'ordre de pose, à partir de 1.
   for (const index of model.opened ?? []) game.toggleOpening(index + 1);
   for (const [sw, lamps] of model.links ?? []) for (const lamp of lamps) game.toggleLink(sw + 1, lamp + 1);
+  // Modules : le premier exemplaire, puis ses copies (la même forme, à la rotation près).
+  for (const m of model.modules ?? []) {
+    const made = game.createModule(m.pieces.map((i) => i + 1), m.name);
+    if (!made.ok) throw new Error(`Modèle « ${model.id} » : module « ${m.name} » refusé (${made.reason})`);
+    for (const copy of m.copies ?? []) {
+      const added = game.addModuleCopy(made.module.id, copy.map((i) => i + 1));
+      if (!added.ok) throw new Error(`Modèle « ${model.id} » : copie du module « ${m.name} » refusée (${added.reason})`);
+    }
+  }
   // L'historique du modèle n'est pas celui du joueur : on repart d'un journal vierge.
   game.journal.clear();
   return game;

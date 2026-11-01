@@ -4,7 +4,7 @@
 // annuler puis rétablir redonne donc exactement le même modèle.
 
 import { Journal } from './journal';
-import { MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, type ModuleDef } from './modules';
+import { MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, sameShapeTurned, type ModuleDef } from './modules';
 import { isGlow, isOpening, isSwitch, normalizeOrient, requireType } from './catalogue';
 import { MAX_EXTENT, Model, pieceExtent, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
 import { evaluateGroupPlacement, transformGroup } from './group';
@@ -279,6 +279,27 @@ export class Game {
     this.moduleMap.set(module.id, module);
     this.emit();
     return { ok: true, module };
+  }
+
+  /**
+   * Déclare des pièces déjà posées comme un exemplaire de plus d'un module : elles doivent avoir la forme de son premier exemplaire, à la rotation près,
+   * se construire seules et n'être dans aucun module. Sert aux constructions écrites d'avance (modèles d'exemple) ; en jeu, on copie avec `liftModuleCopy`.
+   */
+  addModuleCopy(moduleId: number, ids: readonly number[]): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+    const m = this.modules.find((x) => x.id === moduleId);
+    if (!m) return { ok: false, reason: 'absente' };
+    const unique = [...new Set(ids)];
+    if (unique.some((id) => !this.model.get(id))) return { ok: false, reason: 'absente' };
+    if (unique.some((id) => this.moduleOf(id))) return { ok: false, reason: 'deja_module' };
+    const first = localizeModule(this.model, m.pieceIds);
+    const other = localizeModule(this.model, unique);
+    if ('problem' in first) return { ok: false, reason: first.problem };
+    if ('problem' in other) return { ok: false, reason: other.problem };
+    if (!sameShapeTurned(first.pieces, other.pieces)) return { ok: false, reason: 'forme_differente' };
+    const stored = this.moduleMap.get(moduleId)!;
+    this.moduleMap.set(moduleId, { ...stored, copies: [...(stored.copies ?? []), unique] });
+    this.emit();
+    return { ok: true };
   }
 
   /** Défait un module : ses pièces redeviennent des pièces ordinaires. */
