@@ -45,6 +45,7 @@ import logoUrl from '../assets/logo.png';
 import type { Facts } from './guideMissions';
 import { createNotice } from './noticeFlow';
 import { ProjectManager } from './projectManager';
+import { manageOverlays, overlayOpen } from './overlays';
 
 type Tool = 'place' | 'remove' | 'pick' | 'move' | 'link' | 'module';
 
@@ -1732,6 +1733,7 @@ export class App {
     c.addEventListener('pointermove', (e) => this.onPointerMove(e));
     c.addEventListener('pointerup', (e) => this.onPointerUp(e));
     c.addEventListener('pointercancel', (e) => this.pointers.delete(e.pointerId));
+    manageOverlays();
     window.addEventListener('keydown', (e) => this.onKey(e));
     document.addEventListener('pointerdown', (e) => {
       const target = e.target as Node | null;
@@ -2016,6 +2018,8 @@ export class App {
   private onKey(e: KeyboardEvent): void {
     const target = e.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    // Une fenêtre (galerie, exemples, plaques, menu…) est ouverte : le clavier lui appartient, la construction derrière ne bouge pas.
+    if (overlayOpen()) return;
     if (!this.noticeViewer.hidden) {
       if (e.key === 'Escape') this.noticeViewer.hidden = true;
       return;

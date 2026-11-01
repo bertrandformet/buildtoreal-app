@@ -1859,3 +1859,5 @@ button {
 .module-bar[hidden] {
   display: none;
 }
+
+.dialog:focus { outline: none; }
