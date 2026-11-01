@@ -104,3 +104,16 @@ describe('une pièce n’est que dans un seul module', () => {
     expect(roundTrip(game).modules).toHaveLength(1);
   });
 });
+
+describe('enregistrement pendant un déplacement', () => {
+  it('un module soulevé garde son module (et ses liens) dans le fichier', () => {
+    const game = new Game(16, 16, 'vert', () => 0);
+    const a = put(game, 'brick-2x4', 2, 0, 2, 'blanc');
+    const b = put(game, 'brick-1x1', 2, 3, 2);
+    expect(game.createModule([a.id, b.id], 'Mur').ok).toBe(true);
+    expect(game.liftGroup([a.id, b.id]).ok).toBe(true);
+    const data = projectFromGame(game, { id: 'essai', name: 'Essai', createdAt: 1, updatedAt: 1 });
+    expect(data.pieces).toHaveLength(2);
+    expect(data.modules?.map((m) => m.pieces)).toEqual([[a.id, b.id]]);
+  });
+});

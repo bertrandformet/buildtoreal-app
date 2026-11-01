@@ -114,6 +114,9 @@ export class ProjectManager {
     this.host.onStateChange();
   }
 
+  /** Une ouverture est en cours : un second appui (double clic sur « Ouvrir ») est ignoré, il ne doit pas se disputer le verrou avec le premier. */
+  private activating = false;
+
   async newProject(size: number, baseColor: string): Promise<void> {
     const now = Date.now();
     const game = new Game(size, size, baseColor, () => performance.now());
@@ -125,6 +128,16 @@ export class ProjectManager {
 
   /** Ouvre un projet enregistré. Retourne false s'il est absent ou abîmé (la construction en cours reste inchangée). */
   async openProject(id: string, silent = false): Promise<boolean> {
+    if (!this.store || this.activating) return false;
+    this.activating = true;
+    try {
+      return await this.openLoaded(id, silent);
+    } finally {
+      this.activating = false;
+    }
+  }
+
+  private async openLoaded(id: string, silent: boolean): Promise<boolean> {
     if (!this.store) return false;
     const result = await this.store.load(id);
     if (!result.ok) {
@@ -153,11 +166,23 @@ export class ProjectManager {
 
   async deleteProject(id: string): Promise<void> {
     if (!this.store) return;
+    // Un projet ouvert dans un autre onglet (ou que cet onglet ne peut que lire) ne se supprime pas : l'autre onglet le recréerait.
+    if (id === this.meta.id ? this.readOnly : !(await this.deletable(id))) {
+      this.host.notify(t('delete.busy'), 'error');
+      return;
+    }
     await this.store.remove(id);
     if (id === this.meta.id) {
       this.dirty = false;
       await this.newProject(24, 'vert');
     }
+  }
+
+  /** Le projet n'est ouvert nulle part ailleurs : on obtient son verrou, puis on le rend aussitôt. */
+  private async deletable(id: string): Promise<boolean> {
+    const lock = await acquireProjectLock(id, undefined, 1);
+    lock.release();
+    return lock.held;
   }
 
   rename(raw: string): void {

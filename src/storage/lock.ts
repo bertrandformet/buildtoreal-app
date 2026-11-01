@@ -11,10 +11,26 @@ interface LockManagerLike {
   request(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<void> | void): Promise<unknown>;
 }
 
-export function acquireProjectLock(
+const RETRY_DELAY_MS = 60;
+
+/**
+ * Demande le verrou du projet. Un verrou que cet onglet vient de lâcher (réouverture du même projet) n'est libre qu'un instant plus tard :
+ * on réessaie `attempts` fois avant de conclure qu'un autre onglet le tient.
+ */
+export async function acquireProjectLock(
   projectId: string,
   locks: LockManagerLike | undefined = typeof navigator === 'undefined' ? undefined : (navigator.locks as unknown as LockManagerLike | undefined),
+  attempts = 3,
 ): Promise<ProjectLock> {
+  let lock = await acquireOnce(projectId, locks);
+  for (let i = 1; i < attempts && !lock.held; i++) {
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    lock = await acquireOnce(projectId, locks);
+  }
+  return lock;
+}
+
+function acquireOnce(projectId: string, locks: LockManagerLike | undefined): Promise<ProjectLock> {
   if (!locks) return Promise.resolve({ held: true, release() {} });
   return new Promise((resolve) => {
     void locks

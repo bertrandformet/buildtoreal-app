@@ -132,3 +132,17 @@ describe('persistance demandée au navigateur', () => {
     expect(await requestPersistence(undefined)).toBe(false);
   });
 });
+
+describe('connexion à la base', () => {
+  it('se rouvre toute seule quand une autre connexion demande la main (versionchange)', async () => {
+    const { store, factory } = await open();
+    expect((await store.save(project('aaa'))).ok).toBe(true);
+    // Suppression de la base par ailleurs : elle attend que la nôtre se ferme, ce qu'elle fait.
+    const del = factory.deleteDatabase('atelier-briques');
+    await new Promise((resolve) => (del.onsuccess = resolve));
+    const lost = await store.load('aaa');
+    expect(lost.ok).toBe(false);
+    expect((await store.save(project('bbb'))).ok).toBe(true);
+    expect((await store.load('bbb')).ok).toBe(true);
+  });
+});

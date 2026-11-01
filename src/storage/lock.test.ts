@@ -18,6 +18,20 @@ function fakeLocks() {
 }
 
 describe('verrou de projet entre onglets', () => {
+  it('réessaie : le verrou que cet onglet vient de lâcher est obtenu de nouveau', async () => {
+    const locks = fakeLocks();
+    const a = await acquireProjectLock('p1', locks);
+    setTimeout(() => a.release(), 20);
+    const b = await acquireProjectLock('p1', locks);
+    expect(b.held).toBe(true);
+  });
+
+  it('une seule tentative : refus immédiat', async () => {
+    const locks = fakeLocks();
+    await acquireProjectLock('p1', locks);
+    expect((await acquireProjectLock('p1', locks, 1)).held).toBe(false);
+  });
+
   it('accorde le verrou au premier onglet et refuse au second', async () => {
     const locks = fakeLocks();
     const a = await acquireProjectLock('p1', locks);

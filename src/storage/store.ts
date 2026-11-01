@@ -41,42 +41,72 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
 function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    // Pas de rejet sur « error » : l'erreur de la transaction n'est connue qu'à l'annulation qui suit (QuotaExceededError, par exemple).
     tx.onabort = () => reject(tx.error ?? new DOMException('transaction annulée', 'AbortError'));
   });
 }
 
-export class ProjectStore {
-  private readonly db: IDBDatabase;
+function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
+  const req = factory.open(DB_NAME, DB_VERSION);
+  req.onupgradeneeded = () => {
+    const db = req.result;
+    if (!db.objectStoreNames.contains(PROJECTS)) db.createObjectStore(PROJECTS, { keyPath: 'id' });
+    if (!db.objectStoreNames.contains(SUMMARIES)) db.createObjectStore(SUMMARIES, { keyPath: 'id' });
+    if (!db.objectStoreNames.contains(META)) db.createObjectStore(META);
+  };
+  return request(req);
+}
 
-  private constructor(db: IDBDatabase) {
-    this.db = db;
+export class ProjectStore {
+  private conn: IDBDatabase | null;
+  private readonly factory: IDBFactory;
+
+  private constructor(db: IDBDatabase, factory: IDBFactory) {
+    this.factory = factory;
+    this.conn = db;
+    this.watch(db);
+  }
+
+  /** Une autre version de l'application veut mettre la base à niveau, ou le système ferme la connexion : on la lâche, elle se rouvrira au besoin. */
+  private watch(db: IDBDatabase): void {
+    const drop = () => {
+      db.close();
+      if (this.conn === db) this.conn = null;
+    };
+    db.onversionchange = drop;
+    db.onclose = () => {
+      if (this.conn === db) this.conn = null;
+    };
+  }
+
+  /** La connexion ouverte, ou une nouvelle si elle a été fermée. */
+  private async db(): Promise<IDBDatabase> {
+    if (!this.conn) {
+      const db = await openDatabase(this.factory);
+      this.conn = db;
+      this.watch(db);
+    }
+    return this.conn;
   }
 
   /** Ouvre la base. Retourne null si le stockage est indisponible (navigation privée, blocage…). */
   static async open(factory: IDBFactory | undefined = typeof indexedDB === 'undefined' ? undefined : indexedDB): Promise<ProjectStore | null> {
     if (!factory) return null;
     try {
-      const req = factory.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(PROJECTS)) db.createObjectStore(PROJECTS, { keyPath: 'id' });
-        if (!db.objectStoreNames.contains(SUMMARIES)) db.createObjectStore(SUMMARIES, { keyPath: 'id' });
-        if (!db.objectStoreNames.contains(META)) db.createObjectStore(META);
-      };
-      return new ProjectStore(await request(req));
+      return new ProjectStore(await openDatabase(factory), factory);
     } catch {
       return null;
     }
   }
 
   close(): void {
-    this.db.close();
+    this.conn?.close();
+    this.conn = null;
   }
 
   async save(data: ProjectData, thumbnail?: string): Promise<SaveResult> {
     try {
-      const tx = this.db.transaction([PROJECTS, SUMMARIES], 'readwrite');
+      const tx = (await this.db()).transaction([PROJECTS, SUMMARIES], 'readwrite');
       tx.objectStore(PROJECTS).put(data);
       const summary: ProjectSummary = {
         id: data.id,
@@ -96,7 +126,7 @@ export class ProjectStore {
 
   async load(id: string): Promise<LoadResult> {
     try {
-      const raw = await request(this.db.transaction(PROJECTS).objectStore(PROJECTS).get(id));
+      const raw = await request((await this.db()).transaction(PROJECTS).objectStore(PROJECTS).get(id));
       if (raw === undefined) return { ok: false, reason: 'absent', message: 'projet introuvable' };
       const parsed = parseProject(raw);
       if (!parsed.ok) return { ok: false, reason: 'corrompu', message: parsed.error };
@@ -109,7 +139,7 @@ export class ProjectStore {
   /** Résumés des projets, du plus récent au plus ancien. Les entrées illisibles sont ignorées. */
   async list(): Promise<ProjectSummary[]> {
     try {
-      const all = await request(this.db.transaction(SUMMARIES).objectStore(SUMMARIES).getAll());
+      const all = await request((await this.db()).transaction(SUMMARIES).objectStore(SUMMARIES).getAll());
       return (all as ProjectSummary[])
         .filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string' && typeof s.updatedAt === 'number')
         .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -120,7 +150,7 @@ export class ProjectStore {
 
   async remove(id: string): Promise<boolean> {
     try {
-      const tx = this.db.transaction([PROJECTS, SUMMARIES], 'readwrite');
+      const tx = (await this.db()).transaction([PROJECTS, SUMMARIES], 'readwrite');
       tx.objectStore(PROJECTS).delete(id);
       tx.objectStore(SUMMARIES).delete(id);
       await done(tx);
@@ -132,7 +162,7 @@ export class ProjectStore {
 
   async getMeta<T>(key: string): Promise<T | undefined> {
     try {
-      return (await request(this.db.transaction(META).objectStore(META).get(key))) as T | undefined;
+      return (await request((await this.db()).transaction(META).objectStore(META).get(key))) as T | undefined;
     } catch {
       return undefined;
     }
@@ -140,7 +170,7 @@ export class ProjectStore {
 
   async setMeta(key: string, value: unknown): Promise<void> {
     try {
-      const tx = this.db.transaction(META, 'readwrite');
+      const tx = (await this.db()).transaction(META, 'readwrite');
       tx.objectStore(META).put(value, key);
       await done(tx);
     } catch {

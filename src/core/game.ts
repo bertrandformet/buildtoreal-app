@@ -226,14 +226,16 @@ export class Game {
     const out: ModuleDef[] = [];
     // Une pièce n'est que dans un seul module : si un module masqué (retiré puis rétabli par ↶) en rejoint un autre, le premier créé garde la pièce.
     const taken = new Set<number>();
+    // Une pièce soulevée (outil Déplacer) est encore à sa construction : son module ne disparaît pas le temps du geste.
+    const has = (id: number) => this.model.get(id) !== undefined || (this.liftedCopyOf === null && this.liftedPieces.some((p) => p.id === id));
     for (const m of this.moduleMap.values()) {
-      const ids = m.pieceIds.filter((id) => this.model.get(id));
+      const ids = m.pieceIds.filter(has);
       if (ids.length < MIN_MODULE_PIECES || ids.some((id) => taken.has(id))) continue;
       for (const id of ids) taken.add(id);
       const copies: number[][] = [];
       for (const c of m.copies ?? []) {
         if (copies.length >= MAX_COPIES) break;
-        if (c.length === 0 || !c.every((id) => this.model.get(id) && !taken.has(id))) continue;
+        if (c.length === 0 || !c.every((id) => has(id) && !taken.has(id))) continue;
         for (const id of c) taken.add(id);
         copies.push([...c]);
       }

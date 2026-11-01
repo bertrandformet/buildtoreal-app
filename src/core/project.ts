@@ -62,6 +62,7 @@ export function defaultProjectName(now: number): string {
 
 export function projectFromGame(game: Game, meta: ProjectMeta): ProjectData {
   const state = game.exportState();
+  const present = new Set(state.pieces.map((p) => p.id));
   return {
     schema: PROJECT_SCHEMA,
     id: meta.id,
@@ -79,7 +80,7 @@ export function projectFromGame(game: Game, meta: ProjectMeta): ProjectData {
     modules: game.modules.map((m) => ({ id: m.id, name: m.name, pieces: [...m.pieceIds], ...(m.copies ? { copies: m.copies.map((c) => [...c]) } : {}) })),
     switchLinks: state.pieces
       .filter((p) => game.switchLinks.has(p.id))
-      .map((p) => [p.id, [...game.switchLinks.get(p.id)!].filter((id) => game.model.get(id)).sort((a, b) => a - b)] as const)
+      .map((p) => [p.id, [...game.switchLinks.get(p.id)!].filter((id) => present.has(id)).sort((a, b) => a - b)] as const)
       .filter(([, ids]) => ids.length > 0),
   };
 }

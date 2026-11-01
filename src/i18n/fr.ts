@@ -395,6 +395,7 @@ const fr = {
   'import.ok': 'Construction ouverte depuis le fichier.',
   'copy.suffix': 'copie',
   'open.corrupted': 'Cette création est abîmée et ne peut pas être ouverte ({error}). Elle reste conservée : vous pouvez la supprimer depuis « Mes créations ».',
+  'delete.busy': 'Cette création est ouverte dans un autre onglet : fermez-la là-bas avant de la supprimer.',
   'open.absent': 'Cette création n’existe plus.',
   'notice.menu': 'Créer la notice',
   'notice.menuHint': 'Un livre pas à pas de la construction actuelle.',
