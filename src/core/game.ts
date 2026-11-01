@@ -6,7 +6,7 @@
 import { Journal } from './journal';
 import { MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, type ModuleDef } from './modules';
 import { isGlow, isOpening, isSwitch, normalizeOrient, requireType } from './catalogue';
-import { MAX_EXTENT, Model, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
+import { MAX_EXTENT, Model, pieceExtent, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
 import { evaluateGroupPlacement, transformGroup } from './group';
 import { evaluatePlacement, evaluateRemoval, supportsOf, type PlacementReason } from './rules';
 
@@ -20,7 +20,9 @@ export type Command =
   /** Un exemplaire de module posé : de nouvelles pièces, d'un seul pas d'historique. */
   | { readonly kind: 'placeGroup'; readonly pieces: readonly Piece[] }
   /** Plaque ajoutée à la surface ; `dx`, `dz` : décalage de tout le reste quand elle s'ajoute à gauche ou au fond. */
-  | { readonly kind: 'addPlate'; readonly plate: BasePlate; readonly dx: number; readonly dz: number };
+  | { readonly kind: 'addPlate'; readonly plate: BasePlate; readonly dx: number; readonly dz: number }
+  /** La dernière plaque retirée (plaque de travail d'un module, vide) ; annuler la remet. */
+  | { readonly kind: 'removePlate'; readonly plate: BasePlate };
 
 /** Côté d'une plaque : -X (gauche), +X (droite), -Z (fond), +Z (devant), dans le repère de la surface. */
 export type PlateSide = 'x-' | 'x+' | 'z-' | 'z+';
@@ -149,6 +151,8 @@ export class Game {
   private nextModuleId = 1;
   /** Module en cours de montage : les pièces posées en font partie jusqu'à ce qu'on le termine. */
   private building: number | null = null;
+  /** Rang de la plaque de travail (un module qu'on monte à part), tant qu'elle n'est pas retirée. */
+  private workPlateIndex: number | null = null;
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private listeners = new Set<() => void>();
@@ -302,6 +306,58 @@ export class Game {
     this.building = id;
     this.emit();
     return { ok: true, module };
+  }
+
+  /** La plaque de travail du module monté à part, tant qu'elle existe. */
+  get workPlate(): BasePlate | undefined {
+    return this.workPlateIndex === null ? undefined : this.model.plates[this.workPlateIndex];
+  }
+
+  /**
+   * Commence un module sur une plaque de travail ajoutée à côté de la construction (une plaque carrée de `size`, sable, collée à la première
+   * plaque dont un côté libre le permet : à droite, puis devant). On y monte le module sans gêner le reste ; une fois le module terminé et
+   * posé sur la construction, `removeWorkPlateIfEmpty` retire la plaque. Les deux gestes sont des commandes d'historique.
+   */
+  beginModuleOnPlate(name: string, size = 16): { readonly ok: true; readonly module: ModuleDef; readonly plate: BasePlate } | { readonly ok: false; readonly reason: string } {
+    if (this.building !== null && this.moduleMap.has(this.building)) return { ok: false, reason: 'en_cours' };
+    const plates = this.model.plates;
+    for (let i = plates.length - 1; i >= 0; i--) {
+      for (const side of ['x+', 'z+'] as const) {
+        if (!plateBeside(plates, plates[i]!, side, size, 'sable').ok) continue;
+        const added = this.addPlate(i, side, size, 'sable');
+        if (!added.ok) continue;
+        this.workPlateIndex = this.model.plates.length - 1;
+        const begun = this.beginModule(name);
+        if (!begun.ok) return begun;
+        return { ok: true, module: begun.module, plate: added.plate };
+      }
+    }
+    return { ok: false, reason: 'pas_de_place' };
+  }
+
+  /**
+   * Retire la plaque de travail si plus aucune pièce n'est au-dessus et si c'est la dernière plaque ; sinon elle reste. Renvoie vrai si elle a été retirée.
+   */
+  removeWorkPlateIfEmpty(): boolean {
+    const index = this.workPlateIndex;
+    if (index === null) return false;
+    const plate = this.model.plates[index];
+    if (!plate || index !== this.model.plates.length - 1) {
+      this.workPlateIndex = null;
+      return false;
+    }
+    const over = [...this.model.all(), ...this.liftedPieces].some((p) => {
+      const { fx, fz } = pieceExtent(p);
+      return p.x < plate.x + plate.w && p.x + fx > plate.x && p.z < plate.z + plate.l && p.z + fz > plate.z;
+    });
+    if (over) return false;
+    this.cancelLift();
+    this.model.popPlate();
+    this.workPlateIndex = null;
+    this.undoStack.push({ kind: 'removePlate', plate });
+    this.redoStack = [];
+    this.emit();
+    return true;
   }
 
   /**
@@ -630,9 +686,13 @@ export class Game {
     } else if (cmd.kind === 'moveGroup') {
       for (const p of cmd.after) this.model.remove(p.id);
       for (const p of cmd.before) this.model.insert(p);
+    } else if (cmd.kind === 'removePlate') {
+      this.model.addPlate(cmd.plate);
+      this.workPlateIndex = this.model.plates.length - 1;
     } else {
       this.model.popPlate();
       this.model.translate(-cmd.dx, -cmd.dz);
+      if (this.workPlateIndex !== null && this.workPlateIndex >= this.model.plates.length) this.workPlateIndex = null;
     }
     this.redoStack.push(cmd);
     // Seule l'annulation d'une pose compte pour la mesure des « poses ratées ».
@@ -654,6 +714,9 @@ export class Game {
     } else if (cmd.kind === 'moveGroup') {
       for (const p of cmd.before) this.model.remove(p.id);
       for (const p of cmd.after) this.model.insert(p);
+    } else if (cmd.kind === 'removePlate') {
+      this.model.popPlate();
+      this.workPlateIndex = null;
     } else {
       this.applyAddPlate(cmd.plate, cmd.dx, cmd.dz);
     }

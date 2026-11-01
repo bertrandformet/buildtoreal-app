@@ -169,6 +169,7 @@ export class App {
   private moduleDissolveBtn!: HTMLButtonElement;
   private moduleAnchor: number | null = null;
   private moduleBeginBtn!: HTMLButtonElement;
+  private moduleBeginPlateBtn!: HTMLButtonElement;
   private moduleCopyBtn!: HTMLButtonElement;
   /** Une copie de module est en cours de placement (outil Déplacer). */
   private copyInProgress = false;
@@ -514,7 +515,8 @@ export class App {
       this.restoreSelection();
       const copies = copying && this.copyModuleId !== null ? (this.game.modules.find((m) => m.id === this.copyModuleId)?.copies?.length ?? 0) + 1 : 0;
       this.copyInProgress = false;
-      this.showToast(copying ? t('module.copied', { n: copies }) : outcome.moved ? t(wasGroup ? 'move.okGroup' : 'move.ok') : '', 'ok');
+      const plateGone = this.game.removeWorkPlateIfEmpty();
+      this.showToast(plateGone ? t('module.plateRemoved') : copying ? t('module.copied', { n: copies }) : outcome.moved ? t(wasGroup ? 'move.okGroup' : 'move.ok') : '', 'ok');
       if (outcome.moved) {
         this.counts.moves += 1;
         navigator.vibrate?.(8);
@@ -1045,6 +1047,23 @@ export class App {
       this.moduleAnchor = null;
       this.setTool('place');
     });
+    this.moduleBeginPlateBtn = h('button', { type: 'button', class: 'btn' }, t('module.beginPlate')) as HTMLButtonElement;
+    this.moduleBeginPlateBtn.addEventListener('click', () => {
+      if (!this.canEdit()) return;
+      const out = this.game.beginModuleOnPlate(this.moduleName.value || t('module.default', { n: this.game.modules.length + 1 }));
+      if (!out.ok) {
+        this.showToast(t(out.reason === 'pas_de_place' ? 'module.noRoom' : 'module.problem.other'), 'error');
+        return;
+      }
+      this.sound.play('step');
+      this.showToast(t('module.begunPlate'), 'ok');
+      this.moduleSel = [];
+      this.moduleAnchor = null;
+      this.state.gx = out.plate.x + 2;
+      this.state.gz = out.plate.z + 2;
+      this.setTool('place');
+      this.scene.recenter(true);
+    });
     this.moduleCopyBtn = h('button', { type: 'button', class: 'btn' }, t('module.copy')) as HTMLButtonElement;
     this.moduleCopyBtn.addEventListener('click', () => this.copyModule());
     this.moduleDissolveBtn = h('button', { type: 'button', class: 'btn' }, t('module.dissolve')) as HTMLButtonElement;
@@ -1058,7 +1077,7 @@ export class App {
       this.showToast(t('module.dissolved'), 'ok');
       this.syncUi();
     });
-    this.moduleControls = h('div', { class: 'remove-controls module-controls' }, this.moduleInfo, modeRow, this.moduleName, h('div', { class: 'bar-row' }, this.moduleDissolveBtn, this.moduleCreateBtn, this.moduleBeginBtn, this.moduleCopyBtn));
+    this.moduleControls = h('div', { class: 'remove-controls module-controls' }, this.moduleInfo, modeRow, this.moduleName, h('div', { class: 'bar-row' }, this.moduleDissolveBtn, this.moduleCreateBtn, this.moduleBeginBtn, this.moduleBeginPlateBtn, this.moduleCopyBtn));
     const panel = h('aside', { class: 'panel' }, toolSeg, this.placeControls, this.removeControls, this.pickControls, this.moveControls, this.linkControls, this.moduleControls);
 
     root.append(topbar, stage, panel, this.viewPop);
@@ -1886,6 +1905,15 @@ export class App {
       return;
     }
     this.sound.play('step');
+    if (this.game.workPlate) {
+      // Monté sur la plaque de travail : on le soulève aussitôt, pour le poser sur la construction.
+      const ids = [...out.module.pieceIds];
+      this.setTool('move');
+      this.liftConnected = [];
+      this.liftIds(ids[0]!, ids);
+      this.showToast(this.game.lifted !== null ? t('module.placeIt') : t('module.finished', { name: out.module.name }), 'ok');
+      return;
+    }
     this.showToast(t('module.finished', { name: out.module.name }), 'ok');
     this.syncUi();
   }
@@ -1934,6 +1962,7 @@ export class App {
     };
     // Trois états : un module en cours de montage, une sélection, ou rien (on peut en commencer un vide).
     show(this.moduleBeginBtn, !building && sel.length === 0);
+    show(this.moduleBeginPlateBtn, !building && sel.length === 0);
     show(this.moduleName, !building && (sel.length === 0 || !existing));
     show(this.moduleCreateBtn, !!building || sel.length > 0);
     show(this.moduleDissolveBtn, !!building || !!existing);

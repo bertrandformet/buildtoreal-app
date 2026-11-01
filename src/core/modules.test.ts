@@ -306,3 +306,77 @@ describe('copies d’un module', () => {
     expect(game.moduleInstance(module.pieceIds[0]!)?.index).toBe(0);
   });
 });
+
+describe('module monté sur une plaque à part', () => {
+  function setup() {
+    const game = new Game(16, 16, 'vert', () => 0);
+    put(game, 'brick-2x4', 2, 0, 2, 'blanc');
+    return game;
+  }
+
+  it('ajoute une plaque de travail à côté ; les pièces posées dessus font le module ; on le glisse sur la construction et la plaque disparaît', () => {
+    const game = setup();
+    const begun = game.beginModuleOnPlate('Roue', 8);
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(game.model.plates).toHaveLength(2);
+    expect(game.workPlate).toEqual(begun.plate);
+    const a = put(game, 'brick-2x4', begun.plate.x + 2, 0, begun.plate.z + 2, 'noir');
+    const b = put(game, 'brick-2x2', begun.plate.x + 2, 3, begun.plate.z + 2, 'jaune');
+    expect(game.buildingModule?.pieceIds).toEqual([a.id, b.id]);
+    expect(game.finishModule().ok).toBe(true);
+    // Tant que le module est sur la plaque, elle ne se retire pas.
+    expect(game.removeWorkPlateIfEmpty()).toBe(false);
+    // On le glisse sur la construction (même procédé que pour un ensemble déplacé).
+    expect(game.liftGroup([a.id, b.id]).ok).toBe(true);
+    const drop = game.dropGroup({ x: 8, y: 0, z: 8, turns: 0 });
+    expect(drop.ok).toBe(true);
+    expect(game.removeWorkPlateIfEmpty()).toBe(true);
+    expect(game.model.plates).toHaveLength(1);
+    expect(game.workPlate).toBeUndefined();
+    // Le module est resté un module, sur la construction.
+    expect(game.modules[0]!.pieceIds).toEqual([a.id, b.id]);
+    const notice = buildNotice(game.model, game.baseColor, 6, game.modules);
+    expect(notice.plates).toBeUndefined();
+    expect(sameConstruction(replayNotice(notice).model, game.model)).toBe(true);
+  });
+
+  it('l’historique reste cohérent : ↶ remet la plaque, le module sur elle, puis retire la plaque', () => {
+    const game = setup();
+    const begun = game.beginModuleOnPlate('Roue', 8);
+    if (!begun.ok) throw new Error(begun.reason);
+    const a = put(game, 'brick-2x4', begun.plate.x + 2, 0, begun.plate.z + 2, 'noir');
+    const b = put(game, 'brick-2x2', begun.plate.x + 2, 3, begun.plate.z + 2, 'jaune');
+    game.finishModule();
+    game.liftGroup([a.id, b.id]);
+    game.dropGroup({ x: 8, y: 0, z: 8, turns: 0 });
+    game.removeWorkPlateIfEmpty();
+    expect(game.model.plates).toHaveLength(1);
+    game.undo(); // la plaque revient
+    expect(game.model.plates).toHaveLength(2);
+    game.undo(); // le module retourne sur la plaque
+    expect(game.model.get(a.id)!.x).toBe(begun.plate.x + 2);
+    game.redo();
+    game.redo();
+    expect(game.model.plates).toHaveLength(1);
+    expect(game.model.get(a.id)!.x).toBe(8);
+    // ↶ jusqu'au bout : la plaque de travail disparaît avec sa pose.
+    while (game.canUndo) game.undo();
+    expect(game.model.plates).toHaveLength(1);
+    expect(game.model.count).toBe(0);
+  });
+
+  it('refuse un second module en cours, et garde la plaque si une pièce y reste ou si ce n’est plus la dernière', () => {
+    const game = setup();
+    const begun = game.beginModuleOnPlate('A', 8);
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(game.beginModuleOnPlate('B', 8)).toEqual({ ok: false, reason: 'en_cours' });
+    put(game, 'brick-2x2', begun.plate.x + 2, 0, begun.plate.z + 2, 'noir');
+    expect(game.removeWorkPlateIfEmpty()).toBe(false);
+    expect(game.model.plates).toHaveLength(2);
+  });
+
+  it('dit qu’il n’y a pas de place quand la surface est au maximum', () => {
+    const game = new Game(128, 128, 'vert', () => 0);
+    expect(game.beginModuleOnPlate('A', 16)).toEqual({ ok: false, reason: 'pas_de_place' });
+  });
+});
