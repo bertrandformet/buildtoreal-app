@@ -318,6 +318,8 @@ export class App {
       viewMenuOpen: !this.viewPop.hidden,
       examplesOpen: this.examples.isOpen,
       hasSwitch: this.game.switches().length > 0,
+      modules: this.game.modules.length,
+      moduleSel: this.moduleSel.length,
       ...this.counts,
     };
   }

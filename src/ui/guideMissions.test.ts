@@ -30,12 +30,14 @@ const base: Facts = {
   opens: 0,
   examples: 0,
   lights: 0,
+  modules: 0,
+  moduleSel: 0,
 };
 const mission = (id: string) => MISSIONS.find((m) => m.id === id)!;
 
 describe('missions du guide', () => {
   it('enchaîne quinze missions au plus ; la notice vient avant le retrait, pour qu’il reste des pièces à mettre dans le livre', () => {
-    expect(MISSIONS.map((m) => m.id)).toEqual(['choisir', 'deplacer', 'poser', 'pivoter', 'empiler', 'tourner', 'annuler', 'copier', 'soulever', 'notice', 'retirer', 'porte', 'visite', 'modele', 'ampoule']);
+    expect(MISSIONS.map((m) => m.id)).toEqual(['choisir', 'deplacer', 'poser', 'pivoter', 'empiler', 'tourner', 'annuler', 'reprendre', 'module', 'notice', 'retirer', 'porte', 'visite', 'modele', 'ampoule']);
     expect(MISSIONS.length).toBeLessThanOrEqual(15);
   });
 
@@ -91,13 +93,6 @@ describe('missions du guide', () => {
     expect(m.target(later, later)).toContain('undo');
   });
 
-  it('copier : un vrai prélèvement, avec la cible qui suit l’outil', () => {
-    const m = mission('copier');
-    expect(m.done({ ...base, picks: 1 }, base)).toBe(true);
-    expect(m.target(base)).toContain('pick');
-    expect(m.target({ ...base, tool: 'pick' })).toBe('.stage-canvas');
-  });
-
   it('retirer : deux retraits de suite ; demande de poser d’abord s’il manque des pièces', () => {
     const m = mission('retirer');
     expect(m.done({ ...base, removals: 1 }, base)).toBe(false);
@@ -107,16 +102,36 @@ describe('missions du guide', () => {
     expect(m.textKey({ ...base, pieceCount: 3, tool: 'remove' })).toBe('guide.remove.pick');
   });
 
-  it('soulever : un déplacement réussi, avec une consigne qui suit l’outil et la pièce soulevée', () => {
-    const m = mission('soulever');
+  it('reprendre : copier une pièce puis en déplacer une ; la consigne suit l’outil et la pièce soulevée', () => {
+    const m = mission('reprendre');
     const start = { ...base, pieceCount: 2 };
-    expect(m.done({ ...start, moves: 1 }, start)).toBe(true);
-    expect(m.textKey(start)).toBe('guide.lift.tool');
-    expect(m.target(start)).toContain('move');
-    expect(m.textKey({ ...start, tool: 'move' })).toBe('guide.lift.pick');
-    expect(m.textKey({ ...start, tool: 'move', lifted: true })).toBe('guide.lift.drop');
-    expect(m.target({ ...start, tool: 'move', lifted: true })).toBe('.move-row .place-btn');
-    expect(m.textKey({ ...base, pieceCount: 0 })).toBe('guide.lift.need');
+    // Première phase : la copie.
+    expect(m.textKey(start, start)).toBe('guide.pick.tool');
+    expect(m.target(start, start)).toContain('pick');
+    expect(m.target({ ...start, tool: 'pick' }, start)).toBe('.stage-canvas');
+    expect(m.done({ ...start, picks: 1 }, start)).toBe(false);
+    // Seconde phase : le déplacement, une fois la copie faite.
+    const copied = { ...start, picks: 1 };
+    expect(m.textKey(copied, start)).toBe('guide.lift.tool');
+    expect(m.target(copied, start)).toContain('move');
+    expect(m.textKey({ ...copied, tool: 'move' }, start)).toBe('guide.lift.pick');
+    expect(m.textKey({ ...copied, tool: 'move', lifted: true }, start)).toBe('guide.lift.drop');
+    expect(m.target({ ...copied, tool: 'move', lifted: true }, start)).toBe('.move-row .place-btn');
+    expect(m.textKey({ ...base, picks: 1, pieceCount: 0 }, base)).toBe('guide.lift.need');
+    expect(m.done({ ...copied, moves: 1 }, start)).toBe(true);
+    expect(m.done({ ...start, moves: 1 }, start)).toBe(false);
+  });
+
+  it('module : il faut deux pièces, puis l’outil Module, puis toucher une pièce, puis créer', () => {
+    const m = mission('module');
+    expect(m.textKey({ ...base, pieceCount: 1 })).toBe('guide.module.need');
+    expect(m.textKey({ ...base, pieceCount: 2 })).toBe('guide.module.tool');
+    expect(m.target({ ...base, pieceCount: 2 })).toBe('.seg[data-tool="module"]');
+    expect(m.textKey({ ...base, pieceCount: 2, tool: 'module' })).toBe('guide.module.pick');
+    expect(m.target({ ...base, pieceCount: 2, tool: 'module' })).toBe('.stage-canvas');
+    expect(m.textKey({ ...base, pieceCount: 2, tool: 'module', moduleSel: 2 })).toBe('guide.module.create');
+    expect(m.done({ ...base, modules: 1 }, base)).toBe(true);
+    expect(m.done(base, base)).toBe(false);
   });
 
   it('notice : validée à l’ouverture de la notice, la cible suit le menu', () => {

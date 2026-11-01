@@ -41,6 +41,9 @@ export interface Facts {
   readonly opens: number;
   readonly examples: number;
   readonly lights: number;
+  /** Nombre de modules, et de pièces choisies avec l'outil Module. */
+  readonly modules: number;
+  readonly moduleSel: number;
 }
 
 export interface Mission {
@@ -103,16 +106,23 @@ export const MISSIONS: readonly Mission[] = [
     done: (f, b) => f.undos > b.undos && f.redos > b.redos,
   },
   {
-    id: 'copier',
-    textKey: (f) => (f.tool === 'pick' ? 'guide.pick.piece' : 'guide.pick.tool'),
-    target: (f) => (f.tool === 'pick' ? '.stage-canvas' : '.seg[data-tool="pick"]'),
-    done: (f, b) => f.picks > b.picks,
+    // Reprendre une pièce posée : la copier (outil Copier), puis en changer une de place (outil Déplacer).
+    id: 'reprendre',
+    textKey: (f, b = f) => {
+      if (f.picks <= b.picks) return f.tool === 'pick' ? 'guide.pick.piece' : 'guide.pick.tool';
+      return f.pieceCount < 1 ? 'guide.lift.need' : f.lifted ? 'guide.lift.drop' : f.tool === 'move' ? 'guide.lift.pick' : 'guide.lift.tool';
+    },
+    target: (f, b = f) => {
+      if (f.picks <= b.picks) return f.tool === 'pick' ? '.stage-canvas' : '.seg[data-tool="pick"]';
+      return f.pieceCount < 1 ? '.bar-row .place-btn' : f.lifted ? '.move-row .place-btn' : f.tool === 'move' ? '.stage-canvas' : '.seg[data-tool="move"]';
+    },
+    done: (f, b) => f.picks > b.picks && f.moves > b.moves,
   },
   {
-    id: 'soulever',
-    textKey: (f) => (f.pieceCount < 1 ? 'guide.lift.need' : f.lifted ? 'guide.lift.drop' : f.tool === 'move' ? 'guide.lift.pick' : 'guide.lift.tool'),
-    target: (f) => (f.pieceCount < 1 ? '.bar-row .place-btn' : f.lifted ? '.move-row .place-btn' : f.tool === 'move' ? '.stage-canvas' : '.seg[data-tool="move"]'),
-    done: (f, b) => f.moves > b.moves,
+    id: 'module',
+    textKey: (f) => (f.pieceCount < 2 ? 'guide.module.need' : f.tool !== 'module' ? 'guide.module.tool' : f.moduleSel > 0 ? 'guide.module.create' : 'guide.module.pick'),
+    target: (f) => (f.pieceCount < 2 ? '.bar-row .place-btn' : f.tool !== 'module' ? '.seg[data-tool="module"]' : f.moduleSel > 0 ? '.module-controls .btn.primary:not([hidden])' : '.stage-canvas'),
+    done: (f, b) => f.modules > b.modules,
   },
   {
     id: 'notice',
