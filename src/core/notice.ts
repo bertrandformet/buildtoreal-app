@@ -8,6 +8,8 @@
 
 import { BASE_COLORS, getType, isKnownColor, normalizeOrient, requireType, type Orient, type PieceKind } from './catalogue';
 import { MAX_EXTENT, Model, parsePlates, pieceExtent, type BasePlate, type Piece } from './model';
+import { assemblyOrder, piecesBelow } from './assembly';
+import { localizeModule, MAX_MODULE_NAME, type LocalModule, type ModuleDef } from './modules';
 import { evaluatePlacement } from './rules';
 
 export const NOTICE_SCHEMA = 1;
@@ -24,10 +26,35 @@ export interface NoticePiece {
   readonly orient: Orient;
 }
 
+/**
+ * Module (sous-assemblage) : une étape « build » le construit à part (ses pièces sont dans le repère de sa petite plaque, `plate`, qui
+ * est la seule surface) ; l'étape « place » le pose ensuite d'un seul bloc dans la construction (repère de la construction).
+ */
+export interface NoticeModuleRef {
+  readonly id: number;
+  readonly name: string;
+  readonly role: 'build' | 'place';
+  /** Seulement pour « build » : numéro de la partie et nombre de parties, et la petite plaque sur laquelle on construit. */
+  readonly part?: number;
+  readonly parts?: number;
+  readonly plate?: { readonly w: number; readonly l: number };
+}
+
 /** Une étape pose des pièces, ou bien ajoute une plaque (`plate` : son rang dans `Notice.plates`, à partir de 1 ; pas de pièces). */
 export interface NoticeStep {
   readonly pieces: readonly NoticePiece[];
   readonly plate?: number;
+  readonly module?: NoticeModuleRef;
+}
+
+/** Une étape construit un module à part (ses pièces ne sont pas dans la construction à cette étape). */
+export function isModuleBuild(step: NoticeStep): boolean {
+  return step.module?.role === 'build';
+}
+
+/** Les pièces de la construction finie, selon la notice : tout sauf les étapes qui construisent un module à part. */
+export function noticeFinalPieces(notice: Pick<Notice, 'steps'>): NoticePiece[] {
+  return notice.steps.filter((s) => !isModuleBuild(s)).flatMap((s) => s.pieces);
 }
 
 export interface Notice {
@@ -54,74 +81,120 @@ function toNoticePiece(p: Piece): NoticePiece {
   return { typeId: p.typeId, color: p.color, x: p.x, y: p.y, z: p.z, orient: p.orient };
 }
 
-/** Pièces situées sous celle-ci, dans les colonnes de son emprise. */
-function piecesBelow(model: Model, piece: Piece): Piece[] {
-  const { fx, fz } = pieceExtent(piece);
-  const found = new Map<number, Piece>();
-  for (let dz = 0; dz < fz; dz++) {
-    for (let dx = 0; dx < fx; dx++) {
-      let y = piece.y - 1;
-      while (y >= 0) {
-        const q = model.pieceAt(piece.x + dx, y, piece.z + dz);
-        if (q) {
-          found.set(q.id, q);
-          y = q.y - 1;
-        } else {
-          y--;
-        }
-      }
-    }
+export { assemblyOrder } from './assembly';
+
+type OrderItem = { readonly piece: Piece } | { readonly module: ModuleDef; readonly local: LocalModule };
+
+/** Les modules utilisables : au moins deux pièces existantes, aucune pièce partagée, et qui se construisent seuls. */
+function usableModules(model: Model, modules: readonly ModuleDef[]): Array<{ def: ModuleDef; local: LocalModule }> {
+  const taken = new Set<number>();
+  const out: Array<{ def: ModuleDef; local: LocalModule }> = [];
+  for (const m of modules) {
+    const ids = m.pieceIds.filter((id) => model.get(id));
+    if (ids.some((id) => taken.has(id))) continue;
+    const local = localizeModule(model, ids);
+    if ('problem' in local) continue;
+    for (const id of ids) taken.add(id);
+    out.push({ def: { ...m, pieceIds: ids }, local });
   }
-  return [...found.values()];
+  return out;
 }
 
-/** Ordre de montage : tri topologique, départagé par l'ordre de pose réel. */
-export function assemblyOrder(model: Model): Piece[] {
+/**
+ * Ordre de montage avec modules : chaque module est un seul bloc, posé quand toutes les pièces dont il dépend le sont, et avant celles qui
+ * reposent sur lui. Renvoie null si un module rend l'ordre impossible (une pièce serait à la fois sous une pièce du module et au-dessus d'une autre).
+ */
+function orderItems(model: Model, modules: ReadonlyArray<{ def: ModuleDef; local: LocalModule }>): OrderItem[] | null {
   const pieces = model.all();
-  const waiting = new Map<number, number>();
-  const unlocks = new Map<number, Piece[]>();
+  const nodeOf = new Map<number, string>();
+  const nodes = new Map<string, { item: OrderItem; rank: number; tie: number }>();
+  for (const { def, local } of modules) {
+    const key = `m${def.id}`;
+    let rank = Infinity;
+    for (const id of def.pieceIds) {
+      nodeOf.set(id, key);
+      rank = Math.min(rank, model.get(id)!.placedAt);
+    }
+    nodes.set(key, { item: { module: def, local }, rank, tie: Math.min(...def.pieceIds) });
+  }
   for (const p of pieces) {
-    const below = piecesBelow(model, p);
-    waiting.set(p.id, below.length);
-    for (const q of below) {
-      const list = unlocks.get(q.id);
-      if (list) list.push(p);
-      else unlocks.set(q.id, [p]);
+    if (nodeOf.has(p.id)) continue;
+    nodeOf.set(p.id, `p${p.id}`);
+    nodes.set(`p${p.id}`, { item: { piece: p }, rank: p.placedAt, tie: p.id });
+  }
+  const before = new Map<string, Set<string>>();
+  const unlocks = new Map<string, Set<string>>();
+  for (const key of nodes.keys()) before.set(key, new Set());
+  for (const p of pieces) {
+    const mine = nodeOf.get(p.id)!;
+    for (const q of piecesBelow(model, p)) {
+      const theirs = nodeOf.get(q.id)!;
+      if (theirs === mine) continue;
+      before.get(mine)!.add(theirs);
+      if (!unlocks.has(theirs)) unlocks.set(theirs, new Set());
+      unlocks.get(theirs)!.add(mine);
     }
   }
-  const byRank = (a: Piece, b: Piece) => a.placedAt - b.placedAt || a.id - b.id;
-  const ready = pieces.filter((p) => waiting.get(p.id) === 0).sort(byRank);
-  const order: Piece[] = [];
+  const byRank = (a: string, b: string) => nodes.get(a)!.rank - nodes.get(b)!.rank || nodes.get(a)!.tie - nodes.get(b)!.tie;
+  const ready = [...nodes.keys()].filter((k) => before.get(k)!.size === 0).sort(byRank);
+  const order: OrderItem[] = [];
   while (ready.length > 0) {
-    const p = ready.shift()!;
-    order.push(p);
-    for (const next of unlocks.get(p.id) ?? []) {
-      const left = (waiting.get(next.id) ?? 0) - 1;
-      waiting.set(next.id, left);
-      if (left === 0) {
+    const key = ready.shift()!;
+    order.push(nodes.get(key)!.item);
+    for (const next of unlocks.get(key) ?? []) {
+      const waiting = before.get(next)!;
+      waiting.delete(key);
+      if (waiting.size === 0) {
         let i = 0;
         while (i < ready.length && byRank(ready[i]!, next) < 0) i++;
         ready.splice(i, 0, next);
       }
     }
   }
-  if (order.length !== pieces.length) throw new Error('Ordre de montage impossible : dépendance circulaire');
-  return order;
+  return order.length === nodes.size ? order : null;
 }
 
-export function buildNotice(model: Model, baseColor: string, maxPerStep: number = DEFAULT_MAX_PER_STEP): Notice {
-  const order = assemblyOrder(model);
+/**
+ * Notice du modèle. `modules` : les sous-assemblages à construire à part ; chacun donne des étapes encadrées « Construis d'abord ceci »,
+ * puis une étape qui le pose d'un seul bloc. Un module qui ne se construit pas seul, ou qui rend l'ordre impossible, est ignoré
+ * (ses pièces sont alors posées comme les autres).
+ */
+export function buildNotice(model: Model, baseColor: string, maxPerStep: number = DEFAULT_MAX_PER_STEP, modules: readonly ModuleDef[] = []): Notice {
+  let items = modules.length > 0 ? orderItems(model, usableModules(model, modules)) : null;
+  items ??= assemblyOrder(model).map((piece) => ({ piece }));
   const steps: NoticeStep[] = [];
-  let current: Piece[] = [];
+  let current: NoticePiece[] = [];
   const flush = () => {
-    if (current.length > 0) steps.push({ pieces: current.map(toNoticePiece) });
+    if (current.length > 0) steps.push({ pieces: current });
     current = [];
   };
-  for (const p of order) {
-    const first = current[0];
-    const spread = first ? Math.max(Math.abs(p.x - first.x), Math.abs(p.z - first.z)) : 0;
-    if (current.length >= maxPerStep || spread > MAX_STEP_SPREAD) flush();
-    current.push(p);
+  for (const item of items) {
+    if ('piece' in item) {
+      const p = toNoticePiece(item.piece);
+      const first = current[0];
+      const spread = first ? Math.max(Math.abs(p.x - first.x), Math.abs(p.z - first.z)) : 0;
+      if (current.length >= maxPerStep || spread > MAX_STEP_SPREAD) flush();
+      current.push(p);
+      continue;
+    }
+    flush();
+    const { module: def, local } = item;
+    // Parties du module : mêmes règles de découpage que la construction, dans son repère propre. Le nombre de parties est connu à la fin.
+    const groups: NoticePiece[][] = [];
+    let part: NoticePiece[] = [];
+    for (const p of local.pieces) {
+      const first = part[0];
+      const spread = first ? Math.max(Math.abs(p.x - first.x), Math.abs(p.z - first.z)) : 0;
+      if (part.length >= maxPerStep || spread > MAX_STEP_SPREAD) {
+        groups.push(part);
+        part = [];
+      }
+      part.push(p);
+    }
+    if (part.length > 0) groups.push(part);
+    const name = def.name.slice(0, MAX_MODULE_NAME);
+    groups.forEach((pieces, k) => steps.push({ pieces, module: { id: def.id, name, role: 'build', part: k + 1, parts: groups.length, plate: local.plate } }));
+    steps.push({ pieces: local.placed, module: { id: def.id, name, role: 'place' } });
   }
   flush();
   const plates = model.plates.map((p) => ({ ...p }));
@@ -142,7 +215,7 @@ function withPlateSteps(steps: readonly NoticeStep[], plates: readonly BasePlate
   const out: NoticeStep[] = [];
   for (const step of steps) {
     for (const i of [...pending]) {
-      if (step.pieces.some((p) => standsOn(p, plates[i]!))) {
+      if (!isModuleBuild(step) && step.pieces.some((p) => standsOn(p, plates[i]!))) {
         out.push({ pieces: [], plate: i });
         pending.splice(pending.indexOf(i), 1);
       }
@@ -167,8 +240,29 @@ export function replayNotice(notice: Notice): ReplayResult {
   const staged = notice.steps.some((s) => s.plate !== undefined);
   const model = new Model(notice.base.w, notice.base.l, notice.maxLevel, staged ? plates.slice(0, 1) : plates);
   const errors: string[] = [];
+  // Les modules se construisent chacun dans leur petit modèle, puis doivent se retrouver à l'identique dans la construction.
+  const built = new Map<number, Model>();
   notice.steps.forEach((step, i) => {
     if (step.plate !== undefined) model.addPlate(plates[step.plate]!);
+    const mod = step.module;
+    if (mod?.role === 'build') {
+      let sub = built.get(mod.id);
+      if (!sub) {
+        const w = mod.plate?.w ?? 1;
+        const l = mod.plate?.l ?? 1;
+        sub = new Model(w, l, notice.maxLevel, [{ x: 0, z: 0, w, l, color: 'gris' }]);
+        built.set(mod.id, sub);
+      }
+      for (const p of step.pieces) {
+        const result = evaluatePlacement(sub, p);
+        if (!result.ok) {
+          errors.push(`étape ${i + 1} : module « ${mod.name} », ${p.typeId} en (${p.x}, ${p.y}, ${p.z}) refusée (${result.reason})`);
+          continue;
+        }
+        sub.insert(sub.createPiece(p));
+      }
+      return;
+    }
     for (const p of step.pieces) {
       const result = evaluatePlacement(model, p);
       if (!result.ok) {
@@ -177,8 +271,30 @@ export function replayNotice(notice: Notice): ReplayResult {
       }
       model.insert(model.createPiece(p));
     }
+    if (mod?.role === 'place') {
+      const sub = built.get(mod.id);
+      if (!sub || !sameShape(sub, step.pieces)) errors.push(`étape ${i + 1} : le module « ${mod.name} » posé n'est pas celui qui a été construit`);
+    }
   });
   return { ok: errors.length === 0, errors, model };
+}
+
+/** Le module construit à part et les pièces posées ont-ils la même forme, au décalage près ? */
+function sameShape(built: Model, placed: readonly NoticePiece[]): boolean {
+  const mine = built.all();
+  if (mine.length !== placed.length || placed.length === 0) return false;
+  const key = (p: { typeId: string; color: string; x: number; y: number; z: number; orient: number }, dx: number, dy: number, dz: number) =>
+    [p.y - dy, p.z - dz, p.x - dx, p.typeId, p.orient, p.color].join('|');
+  const origin = (list: ReadonlyArray<{ x: number; y: number; z: number }>) => ({
+    x: Math.min(...list.map((p) => p.x)),
+    y: Math.min(...list.map((p) => p.y)),
+    z: Math.min(...list.map((p) => p.z)),
+  });
+  const a = origin(mine);
+  const b = origin(placed);
+  const left = mine.map((p) => key(p, a.x, a.y, a.z)).sort();
+  const right = placed.map((p) => key(p, b.x, b.y, b.z)).sort();
+  return left.every((k, i) => k === right[i]);
 }
 
 /** Clé comparable d'une construction : mêmes pièces, mêmes positions, orientations et couleurs (identifiants ignorés). */
@@ -195,7 +311,7 @@ export function sameConstruction(a: Model, b: Model): boolean {
 }
 
 export function noticePieceCount(notice: Notice): number {
-  return notice.steps.reduce((n, s) => n + s.pieces.length, 0);
+  return noticeFinalPieces(notice).length;
 }
 
 /** Regroupe des pièces identiques (même type, même couleur) avec leur quantité. */
@@ -255,8 +371,23 @@ export function parseNotice(raw: unknown): ParseResult {
       steps.push({ pieces: [], plate: plateRaw });
       continue;
     }
+    const modRaw = (s as { module?: unknown } | null)?.module;
+    let module: NoticeModuleRef | undefined;
+    if (modRaw !== undefined) {
+      const m = modRaw as Record<string, unknown> | null;
+      if (!m || !INT(m['id'], 1, 9999) || typeof m['name'] !== 'string' || m['name'].length < 1 || m['name'].length > MAX_MODULE_NAME) return bad('module invalide');
+      if (m['role'] === 'build') {
+        const plate = m['plate'] as Record<string, unknown> | undefined;
+        if (!INT(m['part'], 1, 60) || !INT(m['parts'], 1, 60) || m['part'] > m['parts'] || !plate || !INT(plate['w'], 3, MAX_EXTENT) || !INT(plate['l'], 3, MAX_EXTENT)) return bad('module invalide');
+        module = { id: m['id'], name: m['name'], role: 'build', part: m['part'], parts: m['parts'], plate: { w: plate['w'], l: plate['l'] } };
+      } else if (m['role'] === 'place') {
+        module = { id: m['id'], name: m['name'], role: 'place' };
+      } else {
+        return bad('module invalide');
+      }
+    }
     const piecesRaw = (s as { pieces?: unknown } | null)?.pieces;
-    if (!Array.isArray(piecesRaw) || piecesRaw.length < 1 || piecesRaw.length > 100) return bad('étape invalide');
+    if (!Array.isArray(piecesRaw) || piecesRaw.length < 1 || piecesRaw.length > (module?.role === 'place' ? 400 : 100)) return bad('étape invalide');
     const pieces: NoticePiece[] = [];
     for (const p of piecesRaw) {
       const q = p as Record<string, unknown> | null;
@@ -269,7 +400,7 @@ export function parseNotice(raw: unknown): ParseResult {
     }
     total += pieces.length;
     if (total > 5000) return bad('trop de pièces');
-    steps.push({ pieces });
+    steps.push({ pieces, ...(module ? { module } : {}) });
   }
   // Chaque plaque ajoutée a exactement une étape (ou aucune : notice de la première version à plusieurs plaques).
   if (plates && plateSteps.size !== 0 && plateSteps.size !== plates.length - 1) return bad('étape de plaque manquante');

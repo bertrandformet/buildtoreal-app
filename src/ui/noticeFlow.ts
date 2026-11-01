@@ -34,7 +34,7 @@ async function shrink(dataUrl: string, width: number): Promise<string> {
 }
 
 export async function createNotice(game: Game, onProgress: (done: number, total: number) => void): Promise<NoticeBundle> {
-  const notice = buildNotice(game.model, game.baseColor);
+  const notice = buildNotice(game.model, game.baseColor, undefined, game.modules);
   const replay = replayNotice(notice);
   const verified = replay.ok && sameConstruction(replay.model, game.model);
 
@@ -43,6 +43,7 @@ export async function createNotice(game: Game, onProgress: (done: number, total:
   try {
     const previous: Array<(typeof notice.steps)[number]['pieces'][number]> = [];
     const steps: string[] = [];
+    const moduleSeen = new Map<number, Array<(typeof notice.steps)[number]['pieces'][number]>>();
     const total = notice.steps.length;
     // Plaques posées au fil des étapes : la première d'emblée, les autres à leur étape (toutes d'emblée pour une ancienne notice).
     const staged = notice.steps.some((s) => s.plate !== undefined);
@@ -51,6 +52,16 @@ export async function createNotice(game: Game, onProgress: (done: number, total:
       onProgress(i, total);
       await nextTick();
       const step = notice.steps[i]!;
+      if (step.module?.role === 'build') {
+        // Un module se construit à part, sur sa petite plaque : image propre, qui ne touche pas à la construction.
+        const mod = step.module;
+        const before = moduleSeen.get(mod.id) ?? [];
+        const w = mod.plate?.w ?? 3;
+        const l = mod.plate?.l ?? 3;
+        steps.push(renderer.renderStep([{ x: 0, z: 0, w, l, color: 'gris' }], before, step.pieces));
+        moduleSeen.set(mod.id, [...before, ...step.pieces]);
+        continue;
+      }
       if (step.plate !== undefined) {
         placed.push(plates[step.plate]!);
         steps.push(renderer.renderStep(placed, previous, [], undefined, placed.length - 1));

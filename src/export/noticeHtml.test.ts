@@ -139,3 +139,34 @@ describe('notice sur plusieurs plaques', () => {
     expect(html).toContain('Plaques de base');
   });
 });
+
+describe('notice exportée avec module', () => {
+  const game = new Game(16, 16, 'vert');
+  const put = (typeId: string, x: number, y: number, z: number, color: string) => {
+    const out = game.place({ typeId, color, x, y, z, orient: 0 });
+    if (!out.ok) throw new Error(out.reason);
+    return out.piece.id;
+  };
+  put('brick-2x4', 2, 0, 2, 'blanc');
+  const ids = [put('brick-1x1', 10, 0, 10, 'marron'), put('brick-2x2', 10, 3, 10, 'vert'), put('brick-1x1', 10, 6, 10, 'jaune')];
+  game.createModule(ids, 'Arbre');
+  const notice = buildNotice(game.model, game.baseColor, 6, game.modules);
+  const html = buildNoticeHtml(notice, { cover: PIXEL, steps: notice.steps.map(() => PIXEL) }, true);
+
+  it('encadre les étapes du module (« Construis d’abord ceci ») et annonce la pose du bloc', () => {
+    expect((html.match(/class="module-banner"/g) ?? []).length).toBe(1);
+    expect(html).toContain('Construis d’abord ceci');
+    expect(html).toContain('Ajoute le module « Arbre »');
+    expect(html).toContain('module « Arbre » · partie 1 sur 1');
+  });
+
+  it('compte chaque pièce une fois dans l’inventaire, et se reconstruit depuis le fichier', () => {
+    expect(html).toContain('4 pièces');
+    const parsed = parseNoticeJson(extractNoticeJson(html)!);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const replay = replayNotice(parsed.notice);
+    expect(replay.errors).toEqual([]);
+    expect(constructionKey(replay.model)).toBe(constructionKey(game.model));
+  });
+});

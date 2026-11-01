@@ -27,6 +27,7 @@ import { Game, edgeHints, plateBeside, type PlateHint } from '../core/game';
 import { MAX_EXTENT } from '../core/model';
 import { evaluateGroupPlacement, groupAbove, groupBounds, groupConnected, groupFootprint, groupLanding, transformGroup } from '../core/group';
 import { buildDenseReference } from '../core/reference';
+import { moduleProblem } from '../core/modules';
 import { evaluatePlacement, landingLevel, type PlacementReason } from '../core/rules';
 import { colorLabel } from '../i18n/colorLabel';
 import { sizeText, typeName } from '../i18n/typeLabel';
@@ -45,7 +46,7 @@ import type { Facts } from './guideMissions';
 import { createNotice } from './noticeFlow';
 import { ProjectManager } from './projectManager';
 
-type Tool = 'place' | 'remove' | 'pick' | 'move' | 'link';
+type Tool = 'place' | 'remove' | 'pick' | 'move' | 'link' | 'module';
 
 interface Recent {
   typeId: string;
@@ -156,6 +157,20 @@ export class App {
   private visitSaved: { mode: InteractionMode; free: boolean } | null = null;
   /** Interrupteur choisi avec l'outil Relier. */
   private linkSwitchId: number | null = null;
+  // Outil Module : pièces choisies, module existant touché (ou null), mode de choix, et les contrôles du panneau.
+  private moduleSel: number[] = [];
+  private moduleExisting: number | null = null;
+  private moduleWhole = false;
+  private moduleControls!: HTMLElement;
+  private moduleInfo!: HTMLElement;
+  private moduleName!: HTMLInputElement;
+  private moduleModeBtns = new Map<boolean, HTMLButtonElement>();
+  private moduleCreateBtn!: HTMLButtonElement;
+  private moduleDissolveBtn!: HTMLButtonElement;
+  private moduleAnchor: number | null = null;
+  private moduleBeginBtn!: HTMLButtonElement;
+  private moduleBar!: HTMLElement;
+  private moduleBarText!: HTMLElement;
   private viewModeRows = new Map<InteractionMode, HTMLButtonElement>();
   private toolBtns = new Map<Tool, HTMLButtonElement>();
   private kindBtns = new Map<PieceKind, HTMLButtonElement>();
@@ -426,7 +441,10 @@ export class App {
   private liftPiece(id: number | null): void {
     if (!this.canEdit() || id === null) return;
     this.liftConnected = groupConnected(this.game.model, id);
-    this.liftIds(id, groupAbove(this.game.model, id));
+    // Une pièce de module se déplace avec tout son module, et avec ce qui est posé dessus.
+    const module = this.game.moduleOf(id);
+    const ids = module ? [...new Set(module.pieceIds.flatMap((m) => groupAbove(this.game.model, m)))] : groupAbove(this.game.model, id);
+    this.liftIds(id, ids);
   }
 
   /** « Tout l'ensemble » : repart de la place d'origine, avec tout ce qui est attaché à la pièce touchée. */
@@ -866,11 +884,15 @@ export class App {
     this.banner = h('div', { class: 'banner', role: 'status', hidden: '' }, h('span', {}, t('readonly.banner')), h('span', { class: 'banner-actions' }, copyBtn, retryBtn));
     this.visitExitBtn = h('button', { type: 'button', class: 'btn primary visit-exit', hidden: '' }, t('visit.exit'));
     this.visitExitBtn.addEventListener('click', () => this.setVisit(false));
-    const stage = h('main', { class: 'stage' }, this.canvas, this.status, this.ceilingBtn, this.banner, viewButtons, this.emptyHint, this.toast, this.visitExitBtn);
+    this.moduleBarText = h('span', {});
+    const moduleFinish = h('button', { type: 'button', class: 'btn primary tiny' }, t('module.finish'));
+    moduleFinish.addEventListener('click', () => this.finishBuildingModule());
+    this.moduleBar = h('div', { class: 'module-bar', hidden: '' }, this.moduleBarText, moduleFinish);
+    const stage = h('main', { class: 'stage' }, this.canvas, this.status, this.ceilingBtn, this.banner, viewButtons, this.emptyHint, this.toast, this.visitExitBtn, this.moduleBar);
 
     // Panneau
     const toolSeg = h('div', { class: 'segmented', role: 'group', 'aria-label': t('tool.label') });
-    for (const tool of ['place', 'remove', 'pick', 'move', 'link'] as Tool[]) {
+    for (const tool of ['place', 'remove', 'pick', 'move', 'link', 'module'] as Tool[]) {
       const b = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'false', 'data-tool': tool }, t(`tool.${tool}` as Key));
       b.addEventListener('click', () => this.setTool(tool));
       this.toolBtns.set(tool, b);
@@ -988,7 +1010,45 @@ export class App {
     this.moveControls = h('div', { class: 'place-controls' }, this.moveInfo, this.moveWholeBtn, this.moveRow);
     this.linkInfo = h('p', { class: 'remove-info' });
     this.linkControls = h('div', { class: 'remove-controls' }, this.linkInfo);
-    const panel = h('aside', { class: 'panel' }, toolSeg, this.placeControls, this.removeControls, this.pickControls, this.moveControls, this.linkControls);
+    this.moduleInfo = h('p', { class: 'remove-info' });
+    this.moduleName = h('input', { type: 'text', class: 'module-name', maxlength: '40', 'aria-label': t('module.name'), placeholder: t('module.name') }) as HTMLInputElement;
+    const modeRow = h('div', { class: 'module-modes', role: 'group' });
+    for (const [whole, key] of [[false, 'module.mode.above'], [true, 'module.mode.all']] as Array<[boolean, Key]>) {
+      const b = h('button', { type: 'button', class: 'btn tiny', 'aria-pressed': String(whole === this.moduleWhole) }, t(key)) as HTMLButtonElement;
+      b.addEventListener('click', () => {
+        this.moduleWhole = whole;
+        if (this.moduleAnchor !== null) this.pickModule(this.moduleAnchor);
+        else this.syncUi();
+      });
+      this.moduleModeBtns.set(whole, b);
+      modeRow.append(b);
+    }
+    this.moduleCreateBtn = h('button', { type: 'button', class: 'btn primary' }, t('module.create')) as HTMLButtonElement;
+    this.moduleCreateBtn.addEventListener('click', () => this.createOrRenameModule());
+    this.moduleBeginBtn = h('button', { type: 'button', class: 'btn primary' }, t('module.begin')) as HTMLButtonElement;
+    this.moduleBeginBtn.addEventListener('click', () => {
+      if (!this.canEdit()) return;
+      const out = this.game.beginModule(this.moduleName.value || t('module.default', { n: this.game.modules.length + 1 }));
+      if (!out.ok) return;
+      this.sound.play('step');
+      this.showToast(t('module.begun', { name: out.module.name }), 'ok');
+      this.moduleSel = [];
+      this.moduleAnchor = null;
+      this.setTool('place');
+    });
+    this.moduleDissolveBtn = h('button', { type: 'button', class: 'btn' }, t('module.dissolve')) as HTMLButtonElement;
+    this.moduleDissolveBtn.addEventListener('click', () => {
+      const id = this.moduleExisting ?? this.game.buildingModule?.id ?? null;
+      if (!this.canEdit() || id === null) return;
+      this.game.dissolveModule(id);
+      this.moduleSel = [];
+      this.moduleExisting = null;
+      this.moduleAnchor = null;
+      this.showToast(t('module.dissolved'), 'ok');
+      this.syncUi();
+    });
+    this.moduleControls = h('div', { class: 'remove-controls module-controls' }, this.moduleInfo, modeRow, this.moduleName, h('div', { class: 'bar-row' }, this.moduleDissolveBtn, this.moduleCreateBtn, this.moduleBeginBtn));
+    const panel = h('aside', { class: 'panel' }, toolSeg, this.placeControls, this.removeControls, this.pickControls, this.moveControls, this.linkControls, this.moduleControls);
 
     root.append(topbar, stage, panel, this.viewPop);
 
@@ -1431,6 +1491,9 @@ export class App {
     this.setDrawer(false);
     this.state.tool = tool;
     this.linkSwitchId = null;
+    this.moduleSel = [];
+    this.moduleExisting = null;
+    this.moduleAnchor = null;
     this.state.selected = null;
     this.scene.setSelection(null);
     this.syncUi();
@@ -1497,6 +1560,10 @@ export class App {
     this.pickControls.hidden = s.tool !== 'pick';
     this.moveControls.hidden = s.tool !== 'move';
     this.linkControls.hidden = s.tool !== 'link';
+    this.moduleControls.hidden = s.tool !== 'module';
+    const building = this.game.buildingModule;
+    this.moduleBar.hidden = !building || s.tool === 'module' || this.visit;
+    if (building) this.moduleBarText.textContent = t('module.bar', { name: building.name, n: building.pieceIds.length });
     this.visitExitBtn.hidden = !this.visit;
     this.moveRow.hidden = this.game.lifted === null;
     this.moveWholeBtn.hidden = this.game.lifted === null || this.liftConnected.length <= this.game.liftedGroup.length;
@@ -1520,6 +1587,8 @@ export class App {
       this.status.dataset['state'] = 'idle';
     } else if (this.placing()) {
       const result = this.refreshGhost();
+      // Les pièces du module en cours de montage sont en vert.
+      this.scene.setSelection(null, this.game.buildingModule?.pieceIds ?? []);
       this.placeBtn.setAttribute('aria-disabled', String(!result.ok || ro));
       this.placeMini.setAttribute('aria-disabled', String(!result.ok || ro));
       this.moveDropBtn.setAttribute('aria-disabled', String(!result.ok || ro));
@@ -1542,6 +1611,11 @@ export class App {
       this.linkInfo.textContent = sw ? t('link.chosen', { n: linked.length }) : t('link.hint');
       this.status.textContent = t('status.link');
       this.status.dataset['state'] = sw ? 'ok' : 'idle';
+    } else if (s.tool === 'module') {
+      this.refreshGhost();
+      this.syncModule();
+      this.status.textContent = t('status.module');
+      this.status.dataset['state'] = this.moduleSel.length > 0 ? 'ok' : 'idle';
     } else if (s.tool === 'pick') {
       this.refreshGhost();
       this.scene.setSelection(null);
@@ -1719,6 +1793,10 @@ export class App {
       this.tapLink(this.scene.pickPiece(e.clientX, e.clientY));
       return;
     }
+    if (this.state.tool === 'module' && !this.visit) {
+      this.pickModule(this.scene.pickPiece(e.clientX, e.clientY));
+      return;
+    }
     if (this.visit || this.state.tool === 'place' || this.state.mode === 'camera') {
       const id = this.visit ? this.scene.pickActive(e.clientX, e.clientY) : this.scene.pickPiece(e.clientX, e.clientY);
       const piece = id === null ? undefined : this.game.model.get(id);
@@ -1754,6 +1832,101 @@ export class App {
       // le bouton « Poser » reste là pour confirmer après un glisser ou la croix.
       this.aimWith(e, true);
       this.placeNow();
+    }
+  }
+
+  /** Outil Module : choisit la pièce touchée avec ce qui est dessus (ou tout l'ensemble), ou reprend le module existant dont elle fait partie. */
+  private pickModule(id: number | null): void {
+    const piece = id === null ? undefined : this.game.model.get(id);
+    if (!piece) return;
+    this.moduleAnchor = piece.id;
+    const existing = this.game.moduleOf(piece.id);
+    this.moduleExisting = existing ? existing.id : null;
+    // Les pièces d'un autre module ne sont pas reprises : un module posé dessus (ou dessous) reste à part.
+    const taken = new Set(this.game.modules.flatMap((m) => m.pieceIds));
+    const wanted = this.moduleWhole ? groupConnected(this.game.model, piece.id) : groupAbove(this.game.model, piece.id);
+    this.moduleSel = existing ? [...existing.pieceIds] : wanted.filter((pid) => !taken.has(pid));
+    this.moduleName.value = existing ? existing.name : t('module.default', { n: this.game.modules.length + 1 });
+    this.sound.play('step');
+    this.syncUi();
+  }
+
+  /** Termine le module en cours ; sinon dit pourquoi, et il reste en cours. */
+  private finishBuildingModule(): void {
+    if (!this.canEdit()) return;
+    const out = this.game.finishModule();
+    if (!out.ok) {
+      this.showToast(t(out.reason === 'sans_appui' ? 'module.problem.building' : this.moduleProblemKey(out.reason)), 'error');
+      return;
+    }
+    this.sound.play('step');
+    this.showToast(t('module.finished', { name: out.module.name }), 'ok');
+    this.syncUi();
+  }
+
+  private createOrRenameModule(): void {
+    if (!this.canEdit()) return;
+    if (this.game.buildingModule) {
+      this.finishBuildingModule();
+      return;
+    }
+    if (this.moduleExisting !== null) {
+      this.game.renameModule(this.moduleExisting, this.moduleName.value);
+      this.syncUi();
+      return;
+    }
+    const out = this.game.createModule(this.moduleSel, this.moduleName.value);
+    if (!out.ok) {
+      this.showToast(t(this.moduleProblemKey(out.reason)), 'error');
+      return;
+    }
+    this.sound.play('step');
+    this.showToast(t('module.created', { name: out.module.name }), 'ok');
+    this.moduleSel = [];
+    this.moduleAnchor = null;
+    this.syncUi();
+  }
+
+  private moduleProblemKey(reason: string): Key {
+    return (['sans_appui', 'deja_module', 'trop_peu'].includes(reason) ? `module.problem.${reason}` : 'module.problem.other') as Key;
+  }
+
+  /** Panneau et surbrillance de l'outil Module : la sélection en vert, ou tous les modules s'il n'y a pas de sélection. */
+  private syncModule(): void {
+    for (const [whole, b] of this.moduleModeBtns) b.setAttribute('aria-pressed', String(whole === this.moduleWhole));
+    const building = this.game.buildingModule;
+    const existing = this.moduleExisting === null ? undefined : this.game.modules.find((m) => m.id === this.moduleExisting);
+    if (this.moduleExisting !== null && !existing) {
+      this.moduleExisting = null;
+      this.moduleSel = [];
+    }
+    const sel = this.moduleSel.filter((id) => this.game.model.get(id));
+    this.moduleSel = sel;
+    this.scene.setSelection(null, building ? building.pieceIds : sel.length > 0 ? sel : this.game.modules.flatMap((m) => [...m.pieceIds]));
+    const show = (el: HTMLElement, on: boolean) => {
+      el.hidden = !on;
+    };
+    // Trois états : un module en cours de montage, une sélection, ou rien (on peut en commencer un vide).
+    show(this.moduleBeginBtn, !building && sel.length === 0);
+    show(this.moduleName, !building && (sel.length === 0 || !existing));
+    show(this.moduleCreateBtn, !!building || sel.length > 0);
+    show(this.moduleDissolveBtn, !!building || !!existing);
+    for (const b of this.moduleModeBtns.values()) show(b, !building);
+    this.moduleCreateBtn.disabled = false;
+    if (building) {
+      this.moduleInfo.textContent = t('module.building', { name: building.name, n: building.pieceIds.length });
+      this.moduleCreateBtn.textContent = t('module.finish');
+      return;
+    }
+    this.moduleCreateBtn.textContent = t(existing ? 'module.rename' : 'module.create');
+    if (sel.length === 0) {
+      this.moduleInfo.textContent = t('module.hint');
+    } else if (existing) {
+      this.moduleInfo.textContent = t('module.existing', { name: existing.name, n: existing.pieceIds.length });
+    } else {
+      const reason = sel.length < 2 ? 'trop_peu' : this.game.modules.some((m) => m.pieceIds.some((id) => sel.includes(id))) ? 'deja_module' : moduleProblem(this.game.model, sel);
+      this.moduleInfo.textContent = `${t('module.chosen', { n: sel.length })} ${reason ? t(this.moduleProblemKey(reason)) : t('module.ok')}`;
+      this.moduleCreateBtn.disabled = reason !== null;
     }
   }
 

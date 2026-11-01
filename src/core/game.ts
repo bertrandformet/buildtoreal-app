@@ -4,6 +4,7 @@
 // annuler puis rétablir redonne donc exactement le même modèle.
 
 import { Journal } from './journal';
+import { MAX_MODULE_NAME, MIN_MODULE_PIECES, localizeModule, type ModuleDef } from './modules';
 import { isGlow, isOpening, isSwitch, normalizeOrient, requireType } from './catalogue';
 import { MAX_EXTENT, Model, platesOverlap, type BasePlate, type ModelState, type Piece, type PieceSpec, type Snapshot } from './model';
 import { evaluateGroupPlacement, transformGroup } from './group';
@@ -140,6 +141,10 @@ export class Game {
   private readonly off = new Set<number>();
   private readonly links = new Map<number, Set<number>>();
   private readonly opened = new Set<number>();
+  private readonly moduleMap = new Map<number, ModuleDef>();
+  private nextModuleId = 1;
+  /** Module en cours de montage : les pièces posées en font partie jusqu'à ce qu'on le termine. */
+  private building: number | null = null;
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private listeners = new Set<() => void>();
@@ -203,6 +208,101 @@ export class Game {
     else this.off.add(id);
     this.emit();
     return !this.off.has(id);
+  }
+
+  /**
+   * Les modules (sous-assemblages à construire à part dans la notice) : seules les pièces qui existent encore comptent, et un module qui
+   * en a moins de deux disparaît. Hors historique : une pièce retirée puis rétablie par ↶ retrouve son module.
+   */
+  get modules(): readonly ModuleDef[] {
+    const out: ModuleDef[] = [];
+    for (const m of this.moduleMap.values()) {
+      const ids = m.pieceIds.filter((id) => this.model.get(id));
+      if (ids.length >= MIN_MODULE_PIECES) out.push({ ...m, pieceIds: ids });
+    }
+    return out;
+  }
+
+  /** Le module dont la pièce fait partie, s'il y en a un. */
+  moduleOf(pieceId: number): ModuleDef | undefined {
+    return this.modules.find((m) => m.pieceIds.includes(pieceId));
+  }
+
+  /**
+   * Crée un module avec ces pièces. Refusé si une pièce est inconnue, déjà dans un module, s'il y en a moins de deux, ou si le module
+   * ne se construit pas seul (la raison est alors celle de la pose refusée : `sans_appui`, `collision`…).
+   */
+  createModule(ids: readonly number[], name: string): { readonly ok: true; readonly module: ModuleDef } | { readonly ok: false; readonly reason: string } {
+    const unique = [...new Set(ids)];
+    if (unique.some((id) => !this.model.get(id))) return { ok: false, reason: 'absente' };
+    if (unique.length < MIN_MODULE_PIECES) return { ok: false, reason: 'trop_peu' };
+    if (unique.some((id) => this.moduleOf(id))) return { ok: false, reason: 'deja_module' };
+    const local = localizeModule(this.model, unique);
+    if ('problem' in local) return { ok: false, reason: local.problem };
+    const module: ModuleDef = { id: this.nextModuleId++, name: name.trim().slice(0, MAX_MODULE_NAME) || `Module ${this.nextModuleId - 1}`, pieceIds: unique.sort((a, b) => a - b) };
+    this.moduleMap.set(module.id, module);
+    this.emit();
+    return { ok: true, module };
+  }
+
+  /** Défait un module : ses pièces redeviennent des pièces ordinaires. */
+  dissolveModule(id: number): void {
+    if (this.building === id) this.building = null;
+    if (this.moduleMap.delete(id)) this.emit();
+  }
+
+  /** Le module en cours de montage, même s'il n'a pas encore deux pièces. */
+  get buildingModule(): ModuleDef | undefined {
+    if (this.building === null) return undefined;
+    const m = this.moduleMap.get(this.building);
+    return m ? { ...m, pieceIds: m.pieceIds.filter((id) => this.model.get(id)) } : undefined;
+  }
+
+  /**
+   * Commence un module sans pièce : toutes les pièces posées ensuite en font partie, jusqu'à `finishModule`. Une seule construction de module à la fois
+   * (le précédent doit être terminé ou défait).
+   */
+  beginModule(name: string): { readonly ok: true; readonly module: ModuleDef } | { readonly ok: false; readonly reason: string } {
+    if (this.building !== null && this.moduleMap.has(this.building)) return { ok: false, reason: 'en_cours' };
+    const id = this.nextModuleId++;
+    const module: ModuleDef = { id, name: name.trim().slice(0, MAX_MODULE_NAME) || `Module ${id}`, pieceIds: [] };
+    this.moduleMap.set(id, module);
+    this.building = id;
+    this.emit();
+    return { ok: true, module };
+  }
+
+  /**
+   * Termine le module en cours. Refusé s'il a moins de deux pièces ou s'il ne se construit pas seul (une pièce repose sur une pièce qui n'en fait
+   * pas partie) : il reste alors en cours, et la raison est celle de la pose refusée.
+   */
+  finishModule(): { readonly ok: true; readonly module: ModuleDef } | { readonly ok: false; readonly reason: string } {
+    const m = this.buildingModule;
+    if (!m) return { ok: false, reason: 'aucun' };
+    if (m.pieceIds.length < MIN_MODULE_PIECES) return { ok: false, reason: 'trop_peu' };
+    const local = localizeModule(this.model, m.pieceIds);
+    if ('problem' in local) return { ok: false, reason: local.problem };
+    this.moduleMap.set(m.id, m);
+    this.building = null;
+    this.emit();
+    return { ok: true, module: m };
+  }
+
+  renameModule(id: number, name: string): void {
+    const m = this.moduleMap.get(id);
+    const clean = name.trim().slice(0, MAX_MODULE_NAME);
+    if (!m || !clean) return;
+    this.moduleMap.set(id, { ...m, name: clean });
+    this.emit();
+  }
+
+  /** Remet les modules (relecture d'un projet). */
+  setModules(modules: Iterable<ModuleDef>): void {
+    this.moduleMap.clear();
+    for (const m of modules) {
+      this.moduleMap.set(m.id, m);
+      this.nextModuleId = Math.max(this.nextModuleId, m.id + 1);
+    }
   }
 
   /** Portes et fenêtres ouvertes. */
@@ -329,6 +429,10 @@ export class Game {
     this.undoStack.push({ kind: 'place', piece });
     this.redoStack = [];
     this.journal.record('place', piece.id);
+    if (this.building !== null) {
+      const m = this.moduleMap.get(this.building);
+      if (m) this.moduleMap.set(m.id, { ...m, pieceIds: [...m.pieceIds, piece.id] });
+    }
     this.emit();
     return { ok: true, piece };
   }

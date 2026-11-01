@@ -5,6 +5,7 @@ import { BASE_COLORS, getType, isGlow, isKnownColor, isOpening, isSwitch, normal
 import { Game } from './game';
 import { legacyLinks } from './lights';
 import { MAX_EXTENT, Model, parsePlates, type BasePlate, type Piece } from './model';
+import { MAX_MODULE_NAME, MIN_MODULE_PIECES } from './modules';
 import { checkInvariants } from './rules';
 
 export const PROJECT_SCHEMA = 1;
@@ -30,6 +31,8 @@ export interface ProjectData {
   readonly switchesOff?: readonly number[];
   /** Portes et fenêtres ouvertes (identifiants de pièces). Absent : tout est fermé. */
   readonly opened?: readonly number[];
+  /** Modules (sous-assemblages pour la notice) : identifiant, nom, pièces. Absent : aucun. */
+  readonly modules?: ReadonlyArray<{ readonly id: number; readonly name: string; readonly pieces: readonly number[] }>;
   /**
    * Pièces lumineuses commandées par chaque interrupteur : [interrupteur, pièces]. Absent des fichiers d'avant les liens
    * explicites : ils sont alors déduits de l'ensemble clipsé (`legacyLinks`).
@@ -73,6 +76,7 @@ export function projectFromGame(game: Game, meta: ProjectMeta): ProjectData {
     plates: game.model.plates.map((p) => ({ ...p })),
     switchesOff: state.pieces.filter((p) => game.switchesOff.has(p.id)).map((p) => p.id),
     opened: state.pieces.filter((p) => game.openings.has(p.id)).map((p) => p.id),
+    modules: game.modules.map((m) => ({ id: m.id, name: m.name, pieces: [...m.pieceIds] })),
     switchLinks: state.pieces
       .filter((p) => game.switchLinks.has(p.id))
       .map((p) => [p.id, [...game.switchLinks.get(p.id)!].filter((id) => game.model.get(id)).sort((a, b) => a - b)] as const)
@@ -86,6 +90,7 @@ export function gameFromProject(data: ProjectData, now?: () => number): Game {
   const game = new Game(data.base.w, data.base.l, data.base.color, now, model);
   game.setSwitchesOff(data.switchesOff ?? []);
   game.setOpenings(data.opened ?? []);
+  game.setModules((data.modules ?? []).map((m) => ({ id: m.id, name: m.name, pieceIds: m.pieces })));
   game.setLinks(data.switchLinks ?? legacyLinks(model));
   return game;
 }
@@ -160,6 +165,22 @@ export function parseProject(raw: unknown): ProjectParse {
     if (!Array.isArray(rawOpened) || rawOpened.some((id) => !openings.has(id as number))) return bad('ouvrants invalides');
     opened = [...new Set(rawOpened as number[])];
   }
+  const rawModules = r['modules'];
+  let modules: Array<{ id: number; name: string; pieces: number[] }> | undefined;
+  if (rawModules !== undefined) {
+    if (!Array.isArray(rawModules) || rawModules.length > 200) return bad('modules invalides');
+    const ids = new Set(pieces.map((p) => p.id));
+    const taken = new Set<number>();
+    modules = [];
+    for (const m of rawModules) {
+      const q = m as { id?: unknown; name?: unknown; pieces?: unknown } | null;
+      if (!q || !INT(q.id, 1, 9999) || typeof q.name !== 'string' || q.name.length < 1 || q.name.length > MAX_MODULE_NAME || !Array.isArray(q.pieces)) return bad('modules invalides');
+      const list = [...new Set(q.pieces as unknown[])];
+      if (list.length < MIN_MODULE_PIECES || list.some((id) => !INT(id, 1, 1e9) || !ids.has(id as number) || taken.has(id as number))) return bad('modules invalides');
+      for (const id of list) taken.add(id as number);
+      modules.push({ id: q.id, name: q.name, pieces: list as number[] });
+    }
+  }
   const rawLinks = r['switchLinks'];
   let switchLinks: Array<[number, number[]]> | undefined;
   if (rawLinks !== undefined) {
@@ -187,6 +208,7 @@ export function parseProject(raw: unknown): ProjectParse {
     ...(plates ? { plates } : {}),
     ...(switchesOff ? { switchesOff } : {}),
     ...(opened ? { opened } : {}),
+    ...(modules ? { modules } : {}),
     ...(switchLinks ? { switchLinks } : {}),
   };
   // Les pièces doivent former une construction valide : pas de collision, pas de sortie de plaque, pas de pièce sans appui.

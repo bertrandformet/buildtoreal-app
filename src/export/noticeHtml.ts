@@ -4,7 +4,7 @@
 // Les données de la notice sont embarquées, pour pouvoir reconstruire la construction depuis le seul fichier.
 
 import { colorHex, finishOf, requireType } from '../core/catalogue';
-import { noticePieceCount, noticePlates, partsOf, serializeNotice, type Notice, type PartLine } from '../core/notice';
+import { noticeFinalPieces, noticePieceCount, noticePlates, partsOf, serializeNotice, type Notice, type PartLine } from '../core/notice';
 import type { BasePlate } from '../core/model';
 import balooFont from '../assets/baloo2-latin.woff2?inline';
 import logoPng from '../assets/logo.png?inline';
@@ -170,11 +170,21 @@ main{max-width:1060px;margin:0 auto;padding:14px}
 }
 
 
+/** Étapes d'un module construit à part : un cadre pointillé et un bandeau « Construis d'abord ceci ». */
+function moduleStyle(): string {
+  return `
+.module-banner{margin:0 0 12px;padding:8px 14px;border:3px solid var(--ink);border-radius:16px;background:#cfe8ff;font-size:19px;font-weight:600;text-align:center}
+.module-build .card{border-style:dashed;background:#f3f9ff}
+.module-note{margin:0;border:3px solid var(--ink);border-radius:18px;padding:11px 14px;font-size:17px;background:#fff}
+@media print{.module-banner{font-size:14pt;padding:5px 10px;margin:0 0 4mm}}
+`;
+}
+
 /** Assemble la page de la notice. Lève une erreur si une image n'est pas une URL de données JPEG/PNG. */
 export function buildNoticeHtml(notice: Notice, images: NoticeImages, verified: boolean): string {
   if (images.steps.length !== notice.steps.length) throw new Error("Une image par étape est nécessaire");
   if (images.thumbs && images.thumbs.length !== notice.steps.length + 1) throw new Error('Une vignette par étape, plus celle de la couverture, est nécessaire');
-  const all = notice.steps.flatMap((s) => s.pieces);
+  const all = noticeFinalPieces(notice);
   // Plusieurs plaques : elles sont listées comme des pièces (une seule : elle va de soi, la notice ne change pas).
   const plates = noticePlates(notice);
   const basePlates = plates.length > 1;
@@ -215,18 +225,26 @@ ${partsList(partsOf(all))}
 ${basePlates ? `<h2>${esc(t('notice.basePlates'))}</h2>\n${platesList(plates)}` : ''}
 </section>`;
 
-  const steps = notice.steps.map(
-    (step, i) => `<section class="page step${step.plate !== undefined ? ' plate-step' : ''}" id="etape-${i + 1}">
-<header class="head"><div class="badge" aria-hidden="true">${i + 1}</div><div class="titles"><div class="num">${esc(t('notice.step', { n: i + 1 }))}</div><div class="of">${esc(t('notice.stepOf', { total }))}</div></div><div class="brand" role="img" aria-label="${brand}"></div></header>
-<div class="body">
-<figure class="card">${image(images.steps[i]!, t('notice.stepAlt', { n: i + 1 }))}</figure>
-<aside class="side"><h3>${esc(t(step.plate !== undefined ? 'notice.plateStep' : 'notice.stepParts'))}</h3>
-${step.plate !== undefined ? platesList([plates[step.plate]!]) : partsList(partsOf(step.pieces))}
-<p class="tip">${esc(t(step.plate !== undefined ? 'notice.plateTip' : 'notice.tip'))}</p></aside>
+  const steps = notice.steps.map((step, i) => {
+    const mod = step.module;
+    const build = mod?.role === 'build';
+    const place = mod?.role === 'place';
+    const of = build ? t('notice.moduleOf', { name: mod!.name, part: mod!.part ?? 1, parts: mod!.parts ?? 1 }) : t('notice.stepOf', { total });
+    const heading = place ? t('notice.modulePlace', { name: mod!.name }) : build ? t('notice.moduleBuild', { name: mod!.name }) : t(step.plate !== undefined ? 'notice.plateStep' : 'notice.stepParts');
+    const alt = build ? t('notice.moduleAlt', { name: mod!.name, part: mod!.part ?? 1 }) : t('notice.stepAlt', { n: i + 1 });
+    const list = step.plate !== undefined ? platesList([plates[step.plate]!]) : place ? `<p class="module-note">${esc(t('notice.modulePlaceNote', { name: mod!.name, n: step.pieces.length }))}</p>` : partsList(partsOf(step.pieces));
+    const tip = step.plate !== undefined ? t('notice.plateTip') : build ? t('notice.moduleTip') : place ? t('notice.modulePlaceTip') : t('notice.tip');
+    return `<section class="page step${step.plate !== undefined ? ' plate-step' : ''}${mod ? ' module-step' : ''}${build ? ' module-build' : ''}" id="etape-${i + 1}">
+<header class="head"><div class="badge" aria-hidden="true">${i + 1}</div><div class="titles"><div class="num">${esc(t('notice.step', { n: i + 1 }))}</div><div class="of">${esc(of)}</div></div><div class="brand" role="img" aria-label="${brand}"></div></header>
+${build ? `<p class="module-banner">${esc(t('notice.moduleBanner'))}</p>\n` : ''}<div class="body">
+<figure class="card">${image(images.steps[i]!, alt)}</figure>
+<aside class="side"><h3>${esc(heading)}</h3>
+${list}
+<p class="tip">${esc(tip)}</p></aside>
 </div>
 ${foot(i + 2)}
-</section>`,
-  );
+</section>`;
+  });
 
   // `<` est échappé pour qu'aucune donnée ne puisse refermer la balise <script>.
   const data = serializeNotice(notice).replace(/</g, '\\u003c');
@@ -236,7 +254,7 @@ ${foot(i + 2)}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(t('notice.title'))}</title>
-<style>${style()}${bookStyle()}</style>
+<style>${style()}${bookStyle()}${moduleStyle()}</style>
 </head>
 <body${images.thumbs ? ' class="has-frise"' : ''}>
 <input type="checkbox" id="duo" class="duo-box" checked>

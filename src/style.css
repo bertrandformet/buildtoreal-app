@@ -1794,16 +1794,68 @@ button {
 .panel {
   container-type: inline-size;
 }
-@container (max-width: 350px) {
+@container (max-width: 440px) {
   .panel .segmented:not(.small) {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
   .panel .segmented:not(.small) .seg[data-tool] {
     min-width: 0;
-    grid-column: span 3;
-  }
-  .panel .segmented:not(.small) .seg[data-tool]:nth-child(-n + 3) {
     grid-column: span 2;
   }
+}
+
+/* Outil Module : sixième pastille, violette ; ses réglages dans le panneau */
+.seg[data-tool='module'] {
+  background: #efe6fb;
+  color: #3d1d6b;
+}
+.seg[data-tool='module'][aria-pressed='true'] {
+  background: #8a55d4;
+  color: #fff;
+}
+.module-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.module-modes {
+  display: flex;
+  gap: 8px;
+}
+.module-modes .btn[aria-pressed='true'] {
+  background: #8a55d4;
+  color: #fff;
+}
+.module-name {
+  font: inherit;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 2px solid var(--line, #c9ced8);
+  border-radius: 14px;
+}
+.module-name[hidden],
+.module-controls [hidden] {
+  display: none;
+}
+
+/* Bandeau « module en cours » sur la scène, avec son bouton pour le terminer */
+.module-bar {
+  position: absolute;
+  left: 8px;
+  top: 52px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 20px;
+  background: #efe6fb;
+  color: #3d1d6b;
+  font-weight: 800;
+  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+.module-bar[hidden] {
+  display: none;
 }
