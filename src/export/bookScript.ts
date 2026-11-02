@@ -190,6 +190,8 @@ function start(k){
   (tpl?Promise.resolve():build()).then(function(){layout();show(spreadOf(k||0))})}
 function stop(){b.classList.remove('book')}
 window.startBook=start;
+// La notice s'affiche dans un cadre isolé (sans « allow-same-origin ») : l'application lui parle par message, pas par accès direct.
+addEventListener('message',function(e){if(e.source!==parent)return;if(e.data==='bt:book')start(0);else if(e.data==='bt:print')print()});
 document.getElementById('play').onclick=function(){start(0)};
 })();`;
 }

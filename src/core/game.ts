@@ -371,6 +371,19 @@ export class Game {
     return { ok: false, reason: 'pas_de_place' };
   }
 
+  private hasPiecesOver(plate: BasePlate): boolean {
+    return [...this.model.all(), ...this.liftedPieces].some((p) => {
+      const { fx, fz } = pieceExtent(p);
+      return p.x < plate.x + plate.w && p.x + fx > plate.x && p.z < plate.z + plate.l && p.z + fz > plate.z;
+    });
+  }
+
+  /** La plaque de travail est la dernière plaque et rien n'est dessus : l'enregistrement l'omet (le module en cours n'est pas enregistré). */
+  get workPlateUnused(): boolean {
+    const plate = this.workPlate;
+    return plate !== undefined && this.workPlateIndex === this.model.plates.length - 1 && !this.hasPiecesOver(plate);
+  }
+
   /**
    * Retire la plaque de travail si plus aucune pièce n'est au-dessus et si c'est la dernière plaque ; sinon elle reste. Renvoie vrai si elle a été retirée.
    */
@@ -382,11 +395,7 @@ export class Game {
       this.workPlateIndex = null;
       return false;
     }
-    const over = [...this.model.all(), ...this.liftedPieces].some((p) => {
-      const { fx, fz } = pieceExtent(p);
-      return p.x < plate.x + plate.w && p.x + fx > plate.x && p.z < plate.z + plate.l && p.z + fz > plate.z;
-    });
-    if (over) return false;
+    if (this.hasPiecesOver(plate)) return false;
     this.cancelLift();
     this.model.popPlate();
     this.workPlateIndex = null;

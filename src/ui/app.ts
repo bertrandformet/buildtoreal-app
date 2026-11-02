@@ -43,7 +43,7 @@ import { Welcome } from './welcome';
 import { Guide } from './guide';
 import logoUrl from '../assets/logo.png';
 import type { Facts } from './guideMissions';
-import { createNotice } from './noticeFlow';
+import { NoticeCancelled, createNotice } from './noticeFlow';
 import { ProjectManager } from './projectManager';
 import { manageOverlays, overlayOpen } from './overlays';
 
@@ -1393,19 +1393,27 @@ export class App {
     this.noticePrintBtn = h('button', { type: 'button', class: 'btn' }, t('notice.print'));
     this.noticeSlidesBtn = h('button', { type: 'button', class: 'btn' }, t('notice.bookButton'));
     this.noticeSlidesBtn.addEventListener('click', () => {
-      (this.noticeFrame.contentWindow as (Window & { startBook?: (n?: number) => void }) | null)?.startBook?.(0);
+      this.noticeFrame.contentWindow?.postMessage('bt:book', '*');
       this.noticeFrame.contentWindow?.focus();
     });
-    this.noticeFrame = h('iframe', { class: 'notice-frame', title: t('notice.title'), sandbox: 'allow-same-origin allow-modals allow-scripts' });
-    close.addEventListener('click', () => (this.noticeViewer.hidden = true));
+    this.noticeFrame = h('iframe', { class: 'notice-frame', title: t('notice.title'), sandbox: 'allow-modals allow-scripts' });
+    close.addEventListener('click', () => this.closeNotice());
     this.noticeDownloadBtn.addEventListener('click', () => this.downloadNotice());
     this.noticePrintBtn.addEventListener('click', () => {
       this.noticeFrame.contentWindow?.focus();
-      this.noticeFrame.contentWindow?.print();
+      this.noticeFrame.contentWindow?.postMessage('bt:print', '*');
     });
     const bar = h('div', { class: 'notice-bar' }, close, this.noticeSlidesBtn, this.noticeDownloadBtn, this.noticePrintBtn, this.noticeStatus);
     const viewer = h('div', { class: 'notice-viewer', hidden: '' }, bar, this.noticeFrame);
     return viewer;
+  }
+
+  /** Numéro de la génération de notice en cours : refermer la fenêtre le change, ce qui arrête la génération. */
+  private noticeRun = 0;
+
+  private closeNotice(): void {
+    this.noticeRun += 1;
+    this.noticeViewer.hidden = true;
   }
 
   private async openNotice(): Promise<void> {
@@ -1413,6 +1421,7 @@ export class App {
       this.showToast(t('notice.empty'), 'error');
       return;
     }
+    const run = ++this.noticeRun;
     this.noticeViewer.hidden = false;
     this.noticeFrame.hidden = true;
     this.noticeDownloadBtn.disabled = true;
@@ -1420,9 +1429,13 @@ export class App {
     this.noticeSlidesBtn.disabled = true;
     this.noticeStatus.textContent = t('notice.working', { done: 0, total: '…' });
     try {
-      const bundle = await createNotice(this.game, (done, total) => {
-        this.noticeStatus.textContent = t('notice.working', { done: Math.min(done + 1, total), total });
-      });
+      const bundle = await createNotice(
+        this.game,
+        (done, total) => {
+          this.noticeStatus.textContent = t('notice.working', { done: Math.min(done + 1, total), total });
+        },
+        () => run !== this.noticeRun,
+      );
       this.noticeHtml = bundle.html;
       this.noticeFrame.srcdoc = bundle.html;
       this.noticeFrame.hidden = false;
@@ -1432,6 +1445,7 @@ export class App {
       this.noticeStatus.textContent = bundle.verified ? t('notice.verified') : t('notice.notVerified');
       this.noticeStatus.dataset['state'] = bundle.verified ? 'ok' : 'bad';
     } catch (error) {
+      if (error instanceof NoticeCancelled) return;
       console.error(error);
       this.noticeStatus.textContent = t('notice.failed');
       this.noticeStatus.dataset['state'] = 'bad';
@@ -2021,7 +2035,7 @@ export class App {
     // Une fenêtre (galerie, exemples, plaques, menu…) est ouverte : le clavier lui appartient, la construction derrière ne bouge pas.
     if (overlayOpen()) return;
     if (!this.noticeViewer.hidden) {
-      if (e.key === 'Escape') this.noticeViewer.hidden = true;
+      if (e.key === 'Escape') this.closeNotice();
       return;
     }
     if (!this.viewPop.hidden && e.key === 'Escape') {

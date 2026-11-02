@@ -10,6 +10,7 @@ import { checkInvariants } from './rules';
 
 export const PROJECT_SCHEMA = 1;
 export const MAX_PROJECT_PIECES = MAX_PIECES;
+const ID_LIMIT = 1e9 - 1e6;
 
 export interface ProjectData {
   readonly schema: typeof PROJECT_SCHEMA;
@@ -74,7 +75,7 @@ export function projectFromGame(game: Game, meta: ProjectMeta): ProjectData {
     nextId: state.nextId,
     nextClock: state.nextClock,
     pieces: state.pieces,
-    plates: game.model.plates.map((p) => ({ ...p })),
+    plates: game.model.plates.filter((_, i) => !(game.workPlateUnused && i === game.model.plates.length - 1)).map((p) => ({ ...p })),
     switchesOff: state.pieces.filter((p) => game.switchesOff.has(p.id)).map((p) => p.id),
     opened: state.pieces.filter((p) => game.openings.has(p.id)).map((p) => p.id),
     modules: game.modules.map((m) => ({ id: m.id, name: m.name, pieces: [...m.pieceIds], ...(m.copies ? { copies: m.copies.map((c) => [...c]) } : {}) })),
@@ -124,7 +125,8 @@ export function parseProject(raw: unknown): ProjectParse {
   if (!base || !INT(base['w'], 1, MAX_EXTENT) || !INT(base['l'], 1, MAX_EXTENT)) return bad('plaque de base invalide');
   if (typeof base['color'] !== 'string' || !BASE_COLORS.some((c) => c.id === base['color'])) return bad('couleur de plaque invalide');
   if (!INT(r['maxLevel'], 3, 300)) return bad('hauteur maximale invalide');
-  if (!INT(r['nextId'], 1, 1e9) || !INT(r['nextClock'], 1, 1e9)) return bad('compteurs invalides');
+  // Une marge sous le plafond : un fichier aux compteurs presque au bout se rouvrirait mal après quelques poses.
+  if (!INT(r['nextId'], 1, ID_LIMIT) || !INT(r['nextClock'], 1, ID_LIMIT)) return bad('compteurs invalides');
   const raws = r['pieces'];
   if (!Array.isArray(raws) || raws.length > MAX_PROJECT_PIECES) return bad('pièces invalides');
 

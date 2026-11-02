@@ -117,3 +117,17 @@ describe('enregistrement pendant un déplacement', () => {
     expect(data.modules?.map((m) => m.pieces)).toEqual([[a.id, b.id]]);
   });
 });
+
+describe('plaque de travail', () => {
+  it('une plaque de travail restée vide n’est pas enregistrée, une plaque utilisée l’est', () => {
+    const game = new Game(16, 16, 'vert', () => 0);
+    expect(game.beginModuleOnPlate('Essai').ok).toBe(true);
+    expect(game.model.plates).toHaveLength(2);
+    const empty = projectFromGame(game, { id: 'essai', name: 'Essai', createdAt: 1, updatedAt: 1 });
+    expect(empty.plates).toHaveLength(1);
+    const plate = game.workPlate!;
+    put(game, 'brick-1x1', plate.x + 1, 0, plate.z + 1);
+    const used = projectFromGame(game, { id: 'essai', name: 'Essai', createdAt: 1, updatedAt: 1 });
+    expect(used.plates).toHaveLength(2);
+  });
+});

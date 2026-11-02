@@ -36,7 +36,10 @@ async function shrink(dataUrl: string, width: number): Promise<string> {
 const LARGE_MODEL = 350;
 const LARGE_PER_STEP = 8;
 
-export async function createNotice(game: Game, onProgress: (done: number, total: number) => void): Promise<NoticeBundle> {
+/** Levée quand la génération est abandonnée (fenêtre refermée) : le rendu s'arrête et sa mémoire est libérée. */
+export class NoticeCancelled extends Error {}
+
+export async function createNotice(game: Game, onProgress: (done: number, total: number) => void, cancelled: () => boolean = () => false): Promise<NoticeBundle> {
   // Un gros modèle donne beaucoup d’étapes : images plus petites et étapes plus chargées pour garder un fichier raisonnable.
   const large = game.model.count > LARGE_MODEL;
   const notice = buildNotice(game.model, game.baseColor, large ? LARGE_PER_STEP : undefined, game.modules);
@@ -56,6 +59,7 @@ export async function createNotice(game: Game, onProgress: (done: number, total:
     for (let i = 0; i < total; i++) {
       onProgress(i, total);
       await nextTick();
+      if (cancelled()) throw new NoticeCancelled();
       const step = notice.steps[i]!;
       if (step.module?.role === 'build') {
         // Un module se construit à part, sur sa petite plaque : image propre, qui ne touche pas à la construction.
@@ -79,7 +83,10 @@ export async function createNotice(game: Game, onProgress: (done: number, total:
     await nextTick();
     const cover = renderer.renderStep(plates, [], previous, 45);
     const thumbs: string[] = [];
-    for (const src of [cover, ...steps]) thumbs.push(await shrink(src, THUMB_WIDTH));
+    for (const src of [cover, ...steps]) {
+      if (cancelled()) throw new NoticeCancelled();
+      thumbs.push(await shrink(src, THUMB_WIDTH));
+    }
     const html = buildNoticeHtml(notice, { cover, steps, thumbs }, verified);
     return { notice, html, verified, errors: replay.errors };
   } finally {

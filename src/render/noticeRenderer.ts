@@ -103,7 +103,10 @@ export class NoticeRenderer {
     for (const child of [...this.content.children]) {
       this.content.remove(child);
       if (child instanceof THREE.InstancedMesh) child.dispose();
-      if ((child instanceof THREE.Mesh || child instanceof THREE.LineSegments) && child.userData['ownGeometry']) child.geometry.dispose();
+      if (!(child instanceof THREE.Mesh || child instanceof THREE.LineSegments)) continue;
+      // Géométries et matières créées pour cette étape : libérées avec elle (sinon elles s'accumulent sur plus de 200 étapes).
+      if (child.userData['ownGeometry']) child.geometry.dispose();
+      if (child.userData['ownMaterial']) for (const m of Array.isArray(child.material) ? child.material : [child.material]) m.dispose();
     }
   }
 
@@ -153,6 +156,7 @@ export class NoticeRenderer {
       const box = new THREE.Mesh(new THREE.BoxGeometry(pw, PLATE_H, pl), baseMat);
       box.position.set(x0 + pw / 2, -PLATE_H / 2, z0 + pl / 2);
       box.userData['ownGeometry'] = true;
+      box.userData['ownMaterial'] = true;
       this.content.add(box);
       const studs = new THREE.InstancedMesh(new THREE.CylinderGeometry(STUD_R, STUD_R, STUD_H, 14), baseMat, pw * pl);
       const m = new THREE.Matrix4();
@@ -163,6 +167,7 @@ export class NoticeRenderer {
           studs.setMatrixAt(n++, m);
         }
       }
+      studs.userData['ownGeometry'] = true;
       this.content.add(studs);
       baseMeshes.push(box, studs);
       if (newPlate !== undefined && plate === plates[newPlate]) {
@@ -171,6 +176,7 @@ export class NoticeRenderer {
         const lines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x15171c }));
         lines.position.copy(box.position);
         lines.userData['ownGeometry'] = true;
+        lines.userData['ownMaterial'] = true;
         this.content.add(lines);
       }
     }
@@ -237,6 +243,7 @@ export class NoticeRenderer {
       const lines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x15171c }));
       lines.position.set(p.x, p.y * PLATE_H, p.z);
       lines.userData['ownGeometry'] = true;
+      lines.userData['ownMaterial'] = true;
       return lines;
     }
     const mesh = new THREE.Mesh(pieceGeometry(p.typeId, p.orient), this.outlineMat);
