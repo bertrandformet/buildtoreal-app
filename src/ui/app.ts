@@ -1755,8 +1755,10 @@ export class App {
       this.sound.unlock();
       this.coarsePointer = e.pointerType !== 'mouse';
     }, { passive: true });
-    // Évite le zoom de page par pincement et les menus contextuels sur iOS.
-    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    // Le pincement est réservé à la scène (caméra) ; ailleurs le zoom de page reste possible, pour les personnes qui en ont besoin.
+    document.addEventListener('gesturestart', (e) => {
+      if (e.target instanceof Element && e.target.closest('canvas')) e.preventDefault();
+    });
     document.addEventListener('dblclick', (e) => e.preventDefault());
   }
 

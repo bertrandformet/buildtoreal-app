@@ -112,8 +112,8 @@ button {
   opacity: 1;
 }
 .btn.tiny {
-  min-height: 32px;
-  padding: 0 8px;
+  min-height: 40px;
+  padding: 0 12px;
   font-size: 12px;
 }
 .icon-btn {
@@ -754,7 +754,7 @@ button {
 .card-actions {
   grid-column: 1 / -1;
   display: flex;
-  gap: 6px;
+  gap: 12px;
   justify-content: flex-end;
 }
 .danger-text {

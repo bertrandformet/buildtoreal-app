@@ -29,6 +29,7 @@ export interface ProjectHost {
 }
 
 const SAVE_DELAY_MS = 800;
+const THUMB_EVERY_MS = 30_000;
 const REMINDER_AFTER_MS = 7 * 24 * 3600 * 1000;
 const REMINDER_MIN_PIECES = 10;
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
@@ -77,9 +78,9 @@ export class ProjectManager {
     this.host = host;
     // Dernier enregistrement avant de quitter ou de passer en arrière-plan.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void this.flush();
+      if (document.visibilityState === 'hidden') void this.flush(true);
     });
-    window.addEventListener('pagehide', () => void this.flush());
+    window.addEventListener('pagehide', () => void this.flush(true));
   }
 
   get hasStore(): boolean {
@@ -96,7 +97,9 @@ export class ProjectManager {
   }
 
   private async activate(game: Game, meta: ProjectMeta): Promise<void> {
-    await this.flush();
+    await this.flush(true);
+    this.thumbnail = undefined;
+    this.lastThumbAt = 0;
     this.lock?.release();
     this.unsubscribe?.();
     this.game = game;
@@ -204,7 +207,11 @@ export class ProjectManager {
     this.host.onStateChange();
   }
 
-  async flush(): Promise<void> {
+  /** Dernière vignette enregistrée, et son heure : gardées pour les enregistrements suivants, qui n'en refont pas à chaque geste. */
+  private thumbnail: string | undefined;
+  private lastThumbAt = 0;
+
+  async flush(force = false): Promise<void> {
     window.clearTimeout(this.timer);
     this.timer = 0;
     if (!this.dirty || this.readOnly || !this.store || !this.game) return;
@@ -212,7 +219,12 @@ export class ProjectManager {
     this.status = 'pending';
     this.meta = { ...this.meta, updatedAt: Date.now() };
     const data = projectFromGame(this.game, this.meta);
-    const result = await this.store.save(data, this.host.captureThumbnail());
+    // Une vignette demande un rendu complet et un JPEG : à l'enregistrement automatique, au plus une toutes les 30 secondes ; la précédente est gardée.
+    const wantThumb = force || Date.now() - this.lastThumbAt >= THUMB_EVERY_MS;
+    const thumbnail = wantThumb ? this.host.captureThumbnail() : undefined;
+    if (thumbnail) this.lastThumbAt = Date.now();
+    const result = await this.store.save(data, thumbnail ?? this.thumbnail);
+    if (thumbnail && result.ok) this.thumbnail = thumbnail;
     if (result.ok) {
       this.status = 'saved';
       this.errorShown = false;
