@@ -4,14 +4,14 @@
 //   Le réseau ne sert qu'à détecter une nouvelle version (le navigateur recharge sw.js) et de secours si la mémoire n'a pas la page.
 // - Une nouvelle version s'installe en attente : elle ne prend la main que sur demande du joueur (bandeau « Nouvelle version »).
 // - Il ne touche jamais aux projets : ceux-ci vivent dans IndexedDB, pas dans ces mémoires.
-const CACHE = 'bt-26f9eec959';
+const CACHE = 'bt-d77b58e270';
 const PRECACHE = [
   "./",
   "./OFL-Baloo2.txt",
   "./apple-touch-icon.png",
   "./assets/baloo2-latin-8NeBJN4T.woff2",
-  "./assets/index-BYJm1MyW.css",
-  "./assets/index-j5_8T-eV.js",
+  "./assets/index-4S36Vbm2.js",
+  "./assets/index-D7N9DIbX.css",
   "./assets/logo-CYNBmSaD.png",
   "./icon-192.png",
   "./icon-512.png",
